@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Provisionamento VM</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <strong>VM Provisioner</strong>
+          <span>vCenter + RackTables</span>
+        </div>
+        <nav>
+          <button class="nav-button active" data-view="create">Criar VM</button>
+          <button class="nav-button" data-view="vcenters">vCenters</button>
+          <button class="nav-button" data-view="jobs">Solicitacoes</button>
+        </nav>
+      </aside>
+
+      <main>
+        <section id="view-create" class="view active">
+          <div class="page-head">
+            <div>
+              <h1>Criacao de VM</h1>
+              <p>Selecione o vCenter, preencha a VM e os dados que serao gravados no RackTables apos sucesso.</p>
+            </div>
+            <button id="reload-create" class="secondary">Atualizar dados</button>
+          </div>
+
+          <form id="provision-form" class="grid-form">
+            <fieldset>
+              <legend>Destino vCenter</legend>
+              <label>
+                vCenter
+                <select name="vcenterId" id="create-vcenter" required></select>
+              </label>
+              <label>
+                Modo de criacao
+                <select name="deployMode" id="deploy-mode">
+                  <option value="template">A partir de template</option>
+                  <option value="iso">VM zerada com ISO</option>
+                </select>
+              </label>
+              <label class="template-only">
+                Template
+                <select name="templateId" id="template-id"></select>
+                <span id="template-status" class="field-status"></span>
+              </label>
+              <label class="iso-only hidden">
+                Caminho da ISO
+                <input name="isoPath" placeholder="[datastore] iso/Windows_Server_2022.iso">
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>Recursos sugeridos</legend>
+              <label>
+                Cluster
+                <select name="clusterId" id="cluster-id"></select>
+              </label>
+              <label>
+                Host
+                <select name="hostId" id="host-id"></select>
+              </label>
+              <label>
+                Datastore
+                <select name="datastoreId" id="datastore-id"></select>
+              </label>
+              <label>
+                Rede
+                <select name="networkId" id="network-id"></select>
+              </label>
+            </fieldset>
+
+            <fieldset>
+              <legend>VM</legend>
+              <label>
+                Label / nome da VM
+                <input name="label" required placeholder="srv-app-001">
+              </label>
+              <label>
+                CPU
+                <input type="number" name="cpu" min="1" value="2">
+              </label>
+              <label>
+                Memoria GB
+                <input type="number" name="memoryGb" min="1" value="4">
+              </label>
+              <label>
+                Disco GB
+                <input type="number" name="diskGb" min="1" value="80" readonly>
+              </label>
+              <div class="disk-editor">
+                <div class="disk-editor-head">
+                  <span>Discos</span>
+                  <button type="button" id="add-disk" class="mini-button">Adicionar disco</button>
+                </div>
+                <div id="disk-list" class="disk-list"></div>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>RackTables</legend>
+              <label>
+                Common Name / SID
+                <select name="commonName" id="free-sid" required></select>
+                <span id="sid-status" class="field-status"></span>
+              </label>
+              <label>
+                Rede IPv4 RackTables
+                <select name="racktablesNetworkId" id="racktables-network" required></select>
+                <span id="network-status" class="field-status"></span>
+              </label>
+              <label>
+                Asset Tag / IP
+                <select name="assetTag" id="free-ip" required></select>
+                <span id="ip-status" class="field-status"></span>
+              </label>
+              <label>
+                FQDN
+                <input name="fqdn" placeholder="srv-app-001.dominio.local">
+              </label>
+              <label>
+                Solicitante
+                <input name="solicitante" placeholder="Nome do solicitante">
+              </label>
+              <label>
+                Equipe responsavel
+                <select name="equipeResponsavel" id="equipe-responsavel"></select>
+              </label>
+              <label>
+                Orgao
+                <select name="orgao" id="orgao"></select>
+              </label>
+              <label>
+                Situacao
+                <select name="situacao" id="situacao"></select>
+              </label>
+              <label>
+                Tags
+                <select id="tag-picker"></select>
+                <span id="tag-status" class="field-status"></span>
+                <div id="selected-tags" class="selected-tags"></div>
+              </label>
+            </fieldset>
+
+            <div class="action-row">
+              <button type="submit" class="primary">Criar VM</button>
+              <span id="create-status" class="status"></span>
+            </div>
+          </form>
+        </section>
+
+        <section id="view-vcenters" class="view">
+          <div class="page-head">
+            <div>
+              <h1>Cadastro de vCenter</h1>
+              <p>O sistema resolve DNS, testa a API do vCenter e so entao libera o cadastro.</p>
+            </div>
+          </div>
+
+          <div class="split">
+            <form id="vcenter-form" class="panel">
+              <h2>Novo vCenter</h2>
+              <label>
+                Nome
+                <input name="name" required placeholder="VCENTER-PROD">
+              </label>
+              <label>
+                FQDN ou IP
+                <input name="host" required placeholder="vcenter.dominio.local">
+              </label>
+              <label>
+                Usuario
+                <input name="username" required placeholder="administrator@vsphere.local">
+              </label>
+              <label>
+                Senha
+                <input type="password" name="password" required>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="insecure" checked>
+                Ignorar certificado TLS invalido/self-signed
+              </label>
+              <div class="action-row">
+                <button type="button" id="test-vcenter" class="secondary">Testar conexao</button>
+                <button type="submit" class="primary">Cadastrar</button>
+              </div>
+              <div id="vcenter-status" class="status"></div>
+            </form>
+
+            <form id="racktables-form" class="panel">
+              <h2>RackTables</h2>
+              <label>
+                URL
+                <input name="baseUrl" required placeholder="http://racktables.local">
+              </label>
+              <label>
+                Usuario
+                <input name="username" required>
+              </label>
+              <label>
+                Senha
+                <input type="password" name="password" required>
+              </label>
+              <div class="action-row">
+                <button type="button" id="test-racktables" class="secondary">Testar</button>
+                <button type="submit" class="primary">Salvar</button>
+              </div>
+              <div id="racktables-status" class="status"></div>
+            </form>
+          </div>
+
+          <div class="panel">
+            <h2>vCenters cadastrados</h2>
+            <div id="vcenter-list" class="table"></div>
+          </div>
+        </section>
+
+        <section id="view-jobs" class="view">
+          <div class="page-head">
+            <div>
+              <h1>Solicitacoes</h1>
+              <p>Historico local das tentativas de provisionamento.</p>
+            </div>
+            <button id="reload-jobs" class="secondary">Atualizar</button>
+          </div>
+          <div id="job-list" class="table"></div>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

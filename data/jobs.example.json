@@ -1,0 +1,49 @@
+[
+  {
+    "id": "uuid",
+    "status": "concluido",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:30.000Z",
+    "request": {
+      "vcenterId": "uuid",
+      "vcenterName": "VCENTER-LAB",
+      "deployMode": "template",
+      "templateId": "inventory:vm-123",
+      "templateName": "linux-template",
+      "vm": {
+        "label": "srv-app-001",
+        "cpu": 2,
+        "memoryGb": 4,
+        "diskGb": 80,
+        "disks": []
+      },
+      "placement": {
+        "clusterId": "domain-c1",
+        "clusterName": "CLUSTER",
+        "hostId": "host-1",
+        "hostName": "esxi.local",
+        "datastoreId": "datastore-1",
+        "datastoreName": "DATASTORE",
+        "networkId": "network-1",
+        "networkName": "VM Network"
+      },
+      "racktables": {
+        "commonName": "S0001",
+        "objectId": "1",
+        "assetTag": "192.0.2.20",
+        "fqdn": "srv-app-001.local",
+        "solicitante": "Solicitante",
+        "equipeResponsavel": "0",
+        "orgao": "0",
+        "situacao": "0",
+        "osType": "0",
+        "tags": []
+      }
+    },
+    "messages": [
+      "VM criada com sucesso no vCenter.",
+      "Dados gravados no RackTables."
+    ]
+  }
+]
+

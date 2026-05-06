@@ -1,0 +1,13 @@
+{
+  "name": "vm-racktables-provisioner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP para provisionamento de VMs no vCenter com registro no RackTables.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

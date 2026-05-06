@@ -1,0 +1,21 @@
+[
+  {
+    "id": "uuid",
+    "name": "VCENTER-LAB",
+    "host": "vcenter.local",
+    "ip": "192.0.2.10",
+    "username": "administrator@vsphere.local",
+    "password": "senha",
+    "insecure": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "lastTest": {
+      "ok": true,
+      "host": "vcenter.local",
+      "ip": "192.0.2.10",
+      "sessionEndpoint": "/rest/com/vmware/cis/session",
+      "testedAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+]
+
