@@ -62,8 +62,7 @@ function setupForms() {
   $("#tag-picker").addEventListener("change", addSelectedTag);
   $("#template-id").addEventListener("change", applySelectedTemplateDetails);
   $("#iso-datastore-id").addEventListener("change", handleIsoDatastoreChange);
-  $("#iso-up").addEventListener("click", () => loadIsoFolder(parentDatastorePath(state.isoBrowser.path)));
-  $("#iso-refresh").addEventListener("click", () => loadIsoFolder(state.isoBrowser.path));
+  $("#iso-refresh").addEventListener("click", () => loadIsoFolder());
   $("#add-disk").addEventListener("click", addDisk);
   $("#deploy-mode").addEventListener("change", updateDeployMode);
   $("#reload-create").addEventListener("click", initialLoad);
@@ -721,7 +720,7 @@ async function handleIsoDatastoreChange() {
   }
 }
 
-async function loadIsoFolder(folderPath = "") {
+async function loadIsoFolder() {
   const vcenterId = $("#create-vcenter").value;
   const datastoreId = $("#iso-datastore-id").value;
   if (!vcenterId || !datastoreId) {
@@ -733,11 +732,11 @@ async function loadIsoFolder(folderPath = "") {
   state.isoBrowser.loading = true;
   renderIsoBrowser();
   try {
-    const result = await api(`/api/vcenters/${encodeURIComponent(vcenterId)}/datastore-files?datastoreId=${encodeURIComponent(datastoreId)}&path=${encodeURIComponent(folderPath || "")}`);
+    const result = await api(`/api/vcenters/${encodeURIComponent(vcenterId)}/datastore-files?datastoreId=${encodeURIComponent(datastoreId)}&recursive=true`);
     state.isoBrowser = { ...result, loading: false };
     renderIsoBrowser();
   } catch (error) {
-    state.isoBrowser = { path: folderPath || "", entries: [], loading: false, error: error.message };
+    state.isoBrowser = { path: "", entries: [], loading: false, error: error.message };
     renderIsoBrowser();
   }
 }
@@ -748,12 +747,11 @@ function renderIsoBrowser() {
   if (!list || !current) return;
 
   const datastoreName = selectedIsoDatastoreName();
-  current.textContent = datastoreName ? `[${datastoreName}] ${state.isoBrowser.path || "/"}` : "Selecione o datastore da ISO.";
-  $("#iso-up").disabled = !state.isoBrowser.path || state.isoBrowser.loading;
+  current.textContent = datastoreName ? `Buscando arquivos .iso em [${datastoreName}]` : "Selecione o datastore da ISO.";
   $("#iso-refresh").disabled = !$("#iso-datastore-id").value || state.isoBrowser.loading;
 
   if (state.isoBrowser.loading) {
-    list.innerHTML = `<div class="iso-empty">Carregando pastas e ISOs...</div>`;
+    list.innerHTML = `<div class="iso-empty">Buscando arquivos .iso em todas as pastas da LUN...</div>`;
     return;
   }
 
@@ -764,14 +762,14 @@ function renderIsoBrowser() {
 
   const entries = state.isoBrowser.entries || [];
   if (!entries.length) {
-    list.innerHTML = `<div class="iso-empty">Nenhuma pasta ou arquivo .iso encontrado neste nivel.</div>`;
+    list.innerHTML = `<div class="iso-empty">Nenhum arquivo .iso encontrado nesta LUN.</div>`;
     return;
   }
 
   const selectedPath = $("#iso-file-path").value;
   list.innerHTML = entries.map((entry) => `
-    <button type="button" class="iso-entry ${entry.type === "folder" ? "folder" : "file"} ${entry.path === selectedPath ? "selected" : ""}" data-type="${entry.type}" data-path="${escapeHtml(entry.path)}">
-      <span>${entry.type === "folder" ? "Pasta" : "ISO"}</span>
+    <button type="button" class="iso-entry file ${entry.path === selectedPath ? "selected" : ""}" data-path="${escapeHtml(entry.path)}">
+      <span>ISO</span>
       <strong>${escapeHtml(entry.name)}</strong>
       ${entry.size ? `<small>${bytes(entry.size)}</small>` : ""}
     </button>
@@ -779,10 +777,6 @@ function renderIsoBrowser() {
 
   list.querySelectorAll(".iso-entry").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.dataset.type === "folder") {
-        loadIsoFolder(button.dataset.path);
-        return;
-      }
       $("#iso-file-path").value = button.dataset.path;
       updateIsoPathPreview();
       renderIsoBrowser();
@@ -794,12 +788,6 @@ function selectedIsoDatastoreName() {
   const datastoreId = $("#iso-datastore-id")?.value;
   const datastore = state.inventory?.datastores?.find((item) => item.datastore === datastoreId);
   return datastore?.name || "";
-}
-
-function parentDatastorePath(value) {
-  const parts = String(value || "").split("/").filter(Boolean);
-  parts.pop();
-  return parts.join("/");
 }
 
 function applySelectedTemplateDetails() {

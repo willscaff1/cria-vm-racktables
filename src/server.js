@@ -343,7 +343,8 @@ async function routeApi(req, res, url) {
     const vcenter = await findVcenter(datastoreFilesMatch[1]);
     const result = await browseVcenterDatastore(vcenter, {
       datastoreId: url.searchParams.get("datastoreId"),
-      folderPath: url.searchParams.get("path")
+      folderPath: url.searchParams.get("path"),
+      recursive: url.searchParams.get("recursive") === "true"
     });
     sendJson(res, 200, result);
     return;
@@ -587,7 +588,7 @@ async function attachIsoCdromToVm(vcenter, session, vmId, isoPath) {
   return await vcenterJson(vcenter, session, "POST", `/rest/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cdrom`, { spec });
 }
 
-async function browseVcenterDatastore(vcenter, { datastoreId, folderPath }) {
+async function browseVcenterDatastore(vcenter, { datastoreId, folderPath, recursive = false }) {
   const datastoreRef = requiredText(datastoreId, "Datastore da ISO");
   const inventory = await getVcenterInventory(vcenter);
   const datastore = (inventory.datastores || []).find((item) => item.datastore === datastoreRef);
@@ -603,18 +604,22 @@ async function browseVcenterDatastore(vcenter, { datastoreId, folderPath }) {
     throw new Error("Nao consegui localizar o datastore browser deste datastore no vCenter.");
   }
 
-  const search = await soapRequest(vcenter, soapSearchDatastore(browser, datastorePath), soap.cookie);
+  const search = await soapRequest(vcenter, recursive ? soapSearchDatastoreSubFolders(browser, datastorePath) : soapSearchDatastore(browser, datastorePath), soap.cookie);
   const taskId = parseTaskRef(search.body);
-  if (!taskId) throw new Error("vCenter iniciou SearchDatastore_Task, mas nao retornou task id.");
+  const operation = recursive ? "SearchDatastoreSubFolders_Task" : "SearchDatastore_Task";
+  if (!taskId) throw new Error(`vCenter iniciou ${operation}, mas nao retornou task id.`);
 
-  const resultXml = await waitSoapTaskResultXml(vcenter, soap, taskId, "SearchDatastore_Task");
-  const entries = parseDatastoreSearchEntries(resultXml, pathInDatastore);
+  const resultXml = await waitSoapTaskResultXml(vcenter, soap, taskId, operation);
+  const entries = recursive
+    ? parseRecursiveDatastoreIsoEntries(resultXml, datastore.name)
+    : parseDatastoreSearchEntries(resultXml, pathInDatastore);
 
   return {
     datastoreId: datastoreRef,
     datastoreName: datastore.name,
     path: pathInDatastore,
     datastorePath,
+    recursive,
     parentPath: parentDatastorePath(pathInDatastore),
     entries
   };
@@ -1293,6 +1298,26 @@ function soapSearchDatastore(browser, datastorePath) {
     </SearchDatastore_Task>`);
 }
 
+function soapSearchDatastoreSubFolders(browser, datastorePath) {
+  return soapEnvelope(`
+    <SearchDatastoreSubFolders_Task xmlns="urn:vim25">
+      <_this type="HostDatastoreBrowser">${escapeXml(browser)}</_this>
+      <datastorePath>${escapeXml(datastorePath)}</datastorePath>
+      <searchSpec>
+        <query xsi:type="IsoImageFileQuery"/>
+        <details>
+          <fileType>true</fileType>
+          <fileSize>true</fileSize>
+          <modification>true</modification>
+          <fileOwner>false</fileOwner>
+        </details>
+        <searchCaseInsensitive>true</searchCaseInsensitive>
+        <matchPattern>*.iso</matchPattern>
+        <sortFoldersFirst>false</sortFoldersFirst>
+      </searchSpec>
+    </SearchDatastoreSubFolders_Task>`);
+}
+
 function soapCloneVm({ templateId, folder, name, resourcePool, host, datastore }) {
   return soapEnvelope(`
     <CloneVM_Task xmlns="urn:vim25">
@@ -1566,29 +1591,52 @@ function parseSoapVmNames(xml) {
 function parseDatastoreSearchEntries(xml, currentPath = "") {
   const files = String(xml).match(/<file\b[\s\S]*?<\/file>/gi) || [];
   const entries = files.map((fileXml) => {
-    const rawName = decodeXmlText(parseSoapText(fileXml, "path") || "");
-    const name = rawName.replace(/^\/+|\/+$/g, "");
-    if (!name || name === "." || name === "..") return null;
-
-    const typeMatch = fileXml.match(/(?:xsi:type|type)=["']([^"']+)["']/i);
-    const soapType = typeMatch?.[1] || "";
-    const isFolder = /FolderFileInfo/i.test(soapType);
-    const isIso = /IsoImageFileInfo/i.test(soapType) || /\.iso$/i.test(name);
-    if (!isFolder && !isIso) return null;
-
-    return {
-      name,
-      path: joinDatastorePath(currentPath, name),
-      type: isFolder ? "folder" : "iso",
-      size: Number(parseSoapText(fileXml, "fileSize") || 0),
-      modifiedAt: parseSoapText(fileXml, "modification") || null
-    };
+    return parseDatastoreFileEntry(fileXml, currentPath, true);
   }).filter(Boolean);
 
   return entries.sort((a, b) => {
     if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
     return a.name.localeCompare(b.name, "pt-BR", { numeric: true });
   });
+}
+
+function parseRecursiveDatastoreIsoEntries(xml, datastoreName) {
+  const blocks = String(xml).match(/<HostDatastoreBrowserSearchResults\b[\s\S]*?<\/HostDatastoreBrowserSearchResults>/gi)
+    || String(xml).match(/<val\b[^>]*HostDatastoreBrowserSearchResults[^>]*>[\s\S]*?<\/val>/gi)
+    || [];
+  const entries = [];
+
+  for (const block of blocks.length ? blocks : [String(xml)]) {
+    const folderPath = normalizeDatastorePath(decodeXmlText(parseSoapText(block, "folderPath") || "").replace(new RegExp(`^\\[${escapeRegExp(datastoreName)}\\]\\s*`), ""));
+    const files = block.match(/<file\b[\s\S]*?<\/file>/gi) || [];
+    for (const fileXml of files) {
+      const entry = parseDatastoreFileEntry(fileXml, folderPath, false);
+      if (entry?.type === "iso") entries.push(entry);
+    }
+  }
+
+  return uniqueBy(entries, "path").sort((a, b) => a.path.localeCompare(b.path, "pt-BR", { numeric: true }));
+}
+
+function parseDatastoreFileEntry(fileXml, currentPath = "", includeFolders = false) {
+  const rawName = decodeXmlText(parseSoapText(fileXml, "path") || "");
+  const name = rawName.replace(/^\/+|\/+$/g, "");
+  if (!name || name === "." || name === "..") return null;
+
+  const typeMatch = fileXml.match(/(?:xsi:type|type)=["']([^"']+)["']/i);
+  const soapType = typeMatch?.[1] || "";
+  const isFolder = /FolderFileInfo/i.test(soapType);
+  const isIso = /IsoImageFileInfo/i.test(soapType) || /\.iso$/i.test(name);
+  if (isFolder && !includeFolders) return null;
+  if (!isFolder && !isIso) return null;
+
+  return {
+    name,
+    path: joinDatastorePath(currentPath, name),
+    type: isFolder ? "folder" : "iso",
+    size: Number(parseSoapText(fileXml, "fileSize") || 0),
+    modifiedAt: parseSoapText(fileXml, "modification") || null
+  };
 }
 
 function normalizeDatastorePath(value) {
@@ -2322,6 +2370,10 @@ function escapeXml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function escapeRegExp(value) {
+  return String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function delay(ms) {
