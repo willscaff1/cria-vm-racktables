@@ -49,9 +49,14 @@
                 <select name="templateId" id="template-id"></select>
                 <span id="template-status" class="field-status"></span>
               </label>
+              <label class="iso-only hidden">
+                Datastore da ISO
+                <select name="isoDatastoreId" id="iso-datastore-id"></select>
+              </label>
               <label class="iso-only hidden span-2">
-                Caminho da ISO
-                <input name="isoPath" placeholder="[datastore] iso/Windows_Server_2022.iso">
+                Caminho da ISO no datastore
+                <input name="isoFilePath" id="iso-file-path" placeholder="ISOS/Windows_Server_2022.iso">
+                <span id="iso-path-preview" class="field-status"></span>
               </label>
             </fieldset>
 

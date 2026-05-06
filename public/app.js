@@ -56,6 +56,8 @@ function setupForms() {
   $("#racktables-network").addEventListener("change", loadFreeIps);
   $("#tag-picker").addEventListener("change", addSelectedTag);
   $("#template-id").addEventListener("change", applySelectedTemplateDetails);
+  $("#iso-datastore-id").addEventListener("change", updateIsoPathPreview);
+  $("#iso-file-path").addEventListener("input", updateIsoPathPreview);
   $("#add-disk").addEventListener("click", addDisk);
   $("#deploy-mode").addEventListener("change", updateDeployMode);
   $("#reload-create").addEventListener("click", initialLoad);
@@ -188,6 +190,7 @@ async function loadInventory() {
     fillSelect($("#cluster-id"), state.inventory.clusters, "cluster", "name", "Selecione...");
     fillSelect($("#host-id"), state.inventory.hosts, "host", "name", "Selecione...");
     fillSelect($("#datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
+    fillSelect($("#iso-datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
     fillSelect($("#network-id"), state.inventory.networks, "network", "name", "Selecione...");
     fillSelect($("#template-id"), state.inventory.templates, "id", templateLabel, "Selecione...");
     updateTemplateStatus(state.inventory.templates);
@@ -202,9 +205,10 @@ async function loadInventory() {
 }
 
 function clearInventory() {
-  ["#cluster-id", "#host-id", "#datastore-id", "#network-id", "#template-id"].forEach((selector) => {
+  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id"].forEach((selector) => {
     fillSelect($(selector), [], "id", "name", "Selecione...");
   });
+  updateIsoPathPreview();
 }
 
 function openVcenterModal() {
@@ -294,6 +298,8 @@ function applySuggestions() {
   if (suggestions.cluster?.cluster) $("#cluster-id").value = suggestions.cluster.cluster;
   if (suggestions.host?.host) $("#host-id").value = suggestions.host.host;
   if (suggestions.datastore?.datastore) $("#datastore-id").value = suggestions.datastore.datastore;
+  if (suggestions.datastore?.datastore) $("#iso-datastore-id").value = suggestions.datastore.datastore;
+  updateIsoPathPreview();
 }
 
 async function testVcenter() {
@@ -387,6 +393,11 @@ async function provisionVm(event) {
     setStatus("#create-status", "Selecione a rede/portgroup do vCenter antes de criar.", "error");
     return;
   }
+  const isoPath = buildIsoPath(data);
+  if (data.deployMode === "iso" && !isoPath) {
+    setStatus("#create-status", "Selecione o datastore da ISO e informe o caminho do arquivo .iso dentro dele.", "error");
+    return;
+  }
 
   const payload = {
     vcenterId: data.vcenterId,
@@ -396,7 +407,9 @@ async function provisionVm(event) {
     deployMode: data.deployMode,
     templateId: data.templateId,
     templateName: selectedText("#template-id"),
-    isoPath: data.isoPath,
+    isoPath,
+    isoDatastoreId: data.isoDatastoreId,
+    isoDatastoreName: selectedText("#iso-datastore-id"),
     vm: {
       label: data.label,
       cpu: Number(data.cpu || 0),
@@ -484,6 +497,7 @@ function renderJobDetails(job) {
     ["FQDN", job.request?.racktables?.fqdn],
     ["vCenter", job.request?.vcenterName],
     ["Template", job.request?.templateName],
+    ["ISO", job.request?.isoPath],
     ["Cluster", job.request?.placement?.clusterName],
     ["Host", job.request?.placement?.hostName],
     ["Datastore", job.request?.placement?.datastoreName],
@@ -655,6 +669,27 @@ function updateDeployMode() {
   const mode = $("#deploy-mode").value;
   $$(".template-only").forEach((item) => item.classList.toggle("hidden", mode !== "template"));
   $$(".iso-only").forEach((item) => item.classList.toggle("hidden", mode !== "iso"));
+  $("#template-id").required = mode === "template";
+  $("#iso-datastore-id").required = mode === "iso";
+  $("#iso-file-path").required = mode === "iso";
+  updateIsoPathPreview();
+}
+
+function buildIsoPath(data = null) {
+  const values = data || formJson($("#provision-form"));
+  const datastore = state.inventory?.datastores?.find((item) => item.datastore === values.isoDatastoreId);
+  const datastoreName = datastore?.name || "";
+  const filePath = String(values.isoFilePath || "").trim().replace(/^\/+/, "");
+  if (!datastoreName || !filePath) return "";
+  return `[${datastoreName}] ${filePath}`;
+}
+
+function updateIsoPathPreview() {
+  const preview = $("#iso-path-preview");
+  if (!preview) return;
+  const mode = $("#deploy-mode")?.value;
+  const isoPath = buildIsoPath();
+  preview.textContent = mode === "iso" && isoPath ? isoPath : "";
 }
 
 function applySelectedTemplateDetails() {

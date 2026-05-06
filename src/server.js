@@ -510,6 +510,7 @@ async function createVcenterVm(vcenter, payload) {
   }
 
   if (payload.deployMode === "iso") {
+    const isoPath = requiredText(payload.isoPath, "ISO da VM zerada");
     const body = {
       name: payload.vm.label,
       guest_OS: payload.vm.guestOs || "OTHER_64",
@@ -525,10 +526,13 @@ async function createVcenterVm(vcenter, payload) {
     };
 
     const result = await createEmptyVcenterVm(vcenter, session, body);
+    const vmId = result?.vm || result?.value || result?.id || null;
+    const cdrom = vmId ? await attachIsoCdromToVm(vcenter, session, vmId, isoPath) : null;
     return {
       mode: "iso",
-      vmId: result?.vm || result?.value || result?.id || null,
-      isoPath: payload.isoPath || null,
+      vmId,
+      isoPath,
+      cdrom,
       raw: result
     };
   }
@@ -550,6 +554,25 @@ async function createEmptyVcenterVm(vcenter, session, spec) {
   }
 
   return await vcenterJson(vcenter, session, "POST", "/rest/vcenter/vm", { spec });
+}
+
+async function attachIsoCdromToVm(vcenter, session, vmId, isoPath) {
+  const spec = {
+    start_connected: true,
+    allow_guest_control: true,
+    backing: {
+      type: "ISO_FILE",
+      iso_file: isoPath
+    }
+  };
+
+  try {
+    return await vcenterJson(vcenter, session, "POST", `/api/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cdrom`, spec);
+  } catch (error) {
+    if (!isVcenterNotFound(error)) throw error;
+  }
+
+  return await vcenterJson(vcenter, session, "POST", `/rest/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cdrom`, { spec });
 }
 
 async function vcenterVmNameExists(vcenter, session, name) {
@@ -1980,6 +2003,9 @@ function validateProvisionPayload(payload) {
   requiredText(payload.vcenterId, "vCenter");
   requiredText(payload.deployMode, "Modo de criacao");
   requiredText(payload.vm?.label, "Label da VM");
+  if (payload.deployMode === "iso") {
+    requiredText(payload.isoPath, "ISO da VM zerada");
+  }
   requiredText(payload.racktables?.commonName, "Common Name/SID");
   requiredText(payload.racktables?.assetTag, "Asset Tag/IP");
 }
