@@ -126,7 +126,8 @@ p {
 
 .grid-form {
   display: grid;
-  gap: 16px;
+  gap: 14px;
+  max-width: 1280px;
 }
 
 fieldset,
@@ -139,8 +140,28 @@ fieldset,
 
 fieldset {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
-  gap: 14px;
+  gap: 12px;
+}
+
+.form-section {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.section-vm {
+  grid-template-columns: minmax(260px, 3fr) repeat(3, minmax(110px, 1fr));
+}
+
+.section-racktables {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+.span-3 {
+  grid-column: span 3;
 }
 
 legend {
@@ -153,7 +174,9 @@ label {
   display: grid;
   gap: 6px;
   color: #344050;
+  font-size: 13px;
   font-weight: 600;
+  min-width: 0;
 }
 
 input,
@@ -165,6 +188,7 @@ select {
   background: #fff;
   color: var(--text);
   padding: 8px 10px;
+  min-width: 0;
 }
 
 select[multiple] {
@@ -475,6 +499,7 @@ button.secondary:hover {
   grid-column: 1 / -1;
   display: grid;
   gap: 8px;
+  padding-top: 2px;
 }
 
 .disk-editor-head {
@@ -493,7 +518,7 @@ button.secondary:hover {
 
 .disk-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 120px 30px;
+  grid-template-columns: minmax(220px, 1fr) 140px 30px;
   gap: 8px;
   align-items: center;
 }
@@ -566,8 +591,16 @@ button.secondary:hover {
   }
 
   fieldset,
+  .form-section,
+  .section-vm,
+  .section-racktables,
   .split {
     grid-template-columns: 1fr;
+  }
+
+  .span-2,
+  .span-3 {
+    grid-column: auto;
   }
 
   .integration-actions,

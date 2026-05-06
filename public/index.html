@@ -31,9 +31,9 @@
           </div>
 
           <form id="provision-form" class="grid-form">
-            <fieldset>
+            <fieldset class="form-section section-destination">
               <legend>Destino vCenter</legend>
-              <label>
+              <label class="span-2">
                 vCenter
                 <select name="vcenterId" id="create-vcenter" required></select>
               </label>
@@ -44,18 +44,18 @@
                   <option value="iso">VM zerada com ISO</option>
                 </select>
               </label>
-              <label class="template-only">
+              <label class="template-only span-2">
                 Template
                 <select name="templateId" id="template-id"></select>
                 <span id="template-status" class="field-status"></span>
               </label>
-              <label class="iso-only hidden">
+              <label class="iso-only hidden span-2">
                 Caminho da ISO
                 <input name="isoPath" placeholder="[datastore] iso/Windows_Server_2022.iso">
               </label>
             </fieldset>
 
-            <fieldset>
+            <fieldset class="form-section section-resources">
               <legend>Recursos sugeridos</legend>
               <label>
                 Cluster
@@ -75,9 +75,9 @@
               </label>
             </fieldset>
 
-            <fieldset>
+            <fieldset class="form-section section-vm">
               <legend>VM</legend>
-              <label>
+              <label class="span-3">
                 Label / nome da VM
                 <input name="label" required placeholder="srv-app-001">
               </label>
@@ -102,9 +102,9 @@
               </div>
             </fieldset>
 
-            <fieldset>
+            <fieldset class="form-section section-racktables">
               <legend>RackTables</legend>
-              <label>
+              <label class="span-2">
                 RackTables
                 <select name="racktablesId" id="create-racktables" required></select>
                 <span id="racktables-select-status" class="field-status"></span>
@@ -114,7 +114,7 @@
                 <select name="commonName" id="free-sid" required></select>
                 <span id="sid-status" class="field-status"></span>
               </label>
-              <label>
+              <label class="span-2">
                 Rede IPv4 RackTables
                 <select name="racktablesNetworkId" id="racktables-network" required></select>
                 <span id="network-status" class="field-status"></span>
@@ -124,7 +124,7 @@
                 <select name="assetTag" id="free-ip" required></select>
                 <span id="ip-status" class="field-status"></span>
               </label>
-              <label>
+              <label class="span-2">
                 FQDN
                 <input name="fqdn" placeholder="srv-app-001.dominio.local">
               </label>
@@ -144,7 +144,7 @@
                 Situacao
                 <select name="situacao" id="situacao"></select>
               </label>
-              <label>
+              <label class="span-2">
                 Tags
                 <select id="tag-picker"></select>
                 <span id="tag-status" class="field-status"></span>
