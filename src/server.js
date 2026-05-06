@@ -522,6 +522,7 @@ async function createVcenterVm(vcenter, payload) {
 
   if (payload.deployMode === "iso") {
     const isoPath = requiredText(payload.isoPath, "ISO da VM zerada");
+    validateIsoPath(isoPath);
     const body = {
       name: payload.vm.label,
       guest_OS: payload.vm.guestOs || "OTHER_64",
@@ -2147,10 +2148,18 @@ function validateProvisionPayload(payload) {
   requiredText(payload.deployMode, "Modo de criacao");
   requiredText(payload.vm?.label, "Label da VM");
   if (payload.deployMode === "iso") {
-    requiredText(payload.isoPath, "ISO da VM zerada");
+    validateIsoPath(requiredText(payload.isoPath, "ISO da VM zerada"));
   }
   requiredText(payload.racktables?.commonName, "Common Name/SID");
   requiredText(payload.racktables?.assetTag, "Asset Tag/IP");
+}
+
+function validateIsoPath(value) {
+  const isoPath = String(value || "").trim();
+  if (!/^\[[^\]]+\]\s+.+\.iso$/i.test(isoPath)) {
+    throw new Error("Selecione um arquivo com extensao .iso no datastore da ISO.");
+  }
+  return isoPath;
 }
 
 async function findVcenter(id) {

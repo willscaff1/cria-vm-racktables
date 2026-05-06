@@ -407,7 +407,11 @@ async function provisionVm(event) {
   }
   const isoPath = buildIsoPath(data);
   if (data.deployMode === "iso" && !isoPath) {
-    setStatus("#create-status", "Selecione o datastore da ISO e informe o caminho do arquivo .iso dentro dele.", "error");
+    setStatus("#create-status", "Selecione um arquivo .iso dentro do datastore escolhido.", "error");
+    return;
+  }
+  if (data.deployMode === "iso" && !/\.iso$/i.test(isoPath)) {
+    setStatus("#create-status", "O arquivo selecionado precisa ter extensao .iso.", "error");
     return;
   }
 
@@ -695,7 +699,7 @@ function buildIsoPath(data = null) {
   const datastore = state.inventory?.datastores?.find((item) => item.datastore === values.isoDatastoreId);
   const datastoreName = datastore?.name || "";
   const filePath = String(values.isoFilePath || "").trim().replace(/^\/+/, "");
-  if (!datastoreName || !filePath) return "";
+  if (!datastoreName || !/\.iso$/i.test(filePath)) return "";
   return `[${datastoreName}] ${filePath}`;
 }
 
@@ -760,7 +764,7 @@ function renderIsoBrowser() {
 
   const entries = state.isoBrowser.entries || [];
   if (!entries.length) {
-    list.innerHTML = `<div class="iso-empty">Nenhuma pasta ou ISO encontrada neste nivel.</div>`;
+    list.innerHTML = `<div class="iso-empty">Nenhuma pasta ou arquivo .iso encontrado neste nivel.</div>`;
     return;
   }
 
