@@ -47,11 +47,6 @@ function setupForms() {
   $$("[data-close-modal]").forEach((button) => {
     button.addEventListener("click", () => closeModal(`#${button.closest(".modal-backdrop").id}`));
   });
-  $$(".modal-backdrop").forEach((backdrop) => {
-    backdrop.addEventListener("click", (event) => {
-      if (event.target === backdrop) closeModal(`#${backdrop.id}`);
-    });
-  });
   $("#test-vcenter").addEventListener("click", testVcenter);
   $("#vcenter-form").addEventListener("submit", saveVcenter);
   $("#racktables-form").addEventListener("submit", saveRackTables);
