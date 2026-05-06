@@ -134,6 +134,43 @@ async function routeApi(req, res, url) {
   }
 
   const rackTablesDeleteMatch = url.pathname.match(/^\/api\/racktables\/([^/]+)$/);
+  if (req.method === "PUT" && rackTablesDeleteMatch) {
+    const body = await readJsonBody(req);
+    const config = normalizeRackTablesConfig(body);
+    const result = await testRackTables(config);
+    if (!result.ok) {
+      sendJson(res, 400, result);
+      return;
+    }
+
+    const configs = await getRackTablesStoredConfigs();
+    const current = configs.find((item) => item.id === rackTablesDeleteMatch[1]);
+    if (!current) {
+      sendJson(res, 404, { error: "RackTables nao encontrado" });
+      return;
+    }
+
+    const incomingName = requiredText(body.name, "Nome do RackTables");
+    const duplicate = configs.find((item) =>
+      item.id !== current.id &&
+      (item.name.toLowerCase() === incomingName.toLowerCase() || item.baseUrl.toLowerCase() === config.baseUrl.toLowerCase())
+    );
+    if (duplicate) {
+      sendJson(res, 409, { error: `RackTables ja cadastrado: ${duplicate.name} (${duplicate.baseUrl})` });
+      return;
+    }
+
+    Object.assign(current, {
+      name: incomingName,
+      ...config,
+      updatedAt: new Date().toISOString(),
+      lastTest: { ...result, testedAt: new Date().toISOString() }
+    });
+    await saveJson("racktables.json", configs);
+    sendJson(res, 200, maskRackTablesConfig(current));
+    return;
+  }
+
   if (req.method === "DELETE" && rackTablesDeleteMatch) {
     const configs = await getRackTablesStoredConfigs();
     const next = configs.filter((item) => item.id !== rackTablesDeleteMatch[1]);
@@ -240,6 +277,47 @@ async function routeApi(req, res, url) {
   }
 
   const vcenterDeleteMatch = url.pathname.match(/^\/api\/vcenters\/([^/]+)$/);
+  if (req.method === "PUT" && vcenterDeleteMatch) {
+    const body = await readJsonBody(req);
+    const test = await testVcenter(body);
+    if (!test.ok) {
+      sendJson(res, 400, test);
+      return;
+    }
+
+    const vcenters = await loadJson("vcenters.json", []);
+    const current = vcenters.find((item) => item.id === vcenterDeleteMatch[1]);
+    if (!current) {
+      sendJson(res, 404, { error: "vCenter nao encontrado" });
+      return;
+    }
+
+    const incomingHost = normalizeHost(requiredText(body.host, "Host/FQDN do vCenter")).toLowerCase();
+    const incomingName = requiredText(body.name, "Nome do vCenter").toLowerCase();
+    const duplicate = vcenters.find((item) =>
+      item.id !== current.id &&
+      (item.host.toLowerCase() === incomingHost || item.name.toLowerCase() === incomingName)
+    );
+    if (duplicate) {
+      sendJson(res, 409, { error: `vCenter ja cadastrado: ${duplicate.name} (${duplicate.host})` });
+      return;
+    }
+
+    Object.assign(current, {
+      name: requiredText(body.name, "Nome do vCenter"),
+      host: incomingHost,
+      ip: test.ip,
+      username: requiredText(body.username, "Usuario do vCenter"),
+      password: requiredText(body.password, "Senha do vCenter"),
+      insecure: Boolean(body.insecure),
+      updatedAt: new Date().toISOString(),
+      lastTest: test
+    });
+    await saveJson("vcenters.json", vcenters);
+    sendJson(res, 200, maskVcenter(current));
+    return;
+  }
+
   if (req.method === "DELETE" && vcenterDeleteMatch) {
     const vcenters = await loadJson("vcenters.json", []);
     const next = vcenters.filter((item) => item.id !== vcenterDeleteMatch[1]);

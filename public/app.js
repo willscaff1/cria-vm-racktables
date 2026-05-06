@@ -16,6 +16,8 @@ const state = {
 const selectedTagIds = new Set();
 let vmDisks = [];
 let selectedTemplateDetails = null;
+let editingVcenterId = null;
+let editingRackTablesId = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -212,6 +214,9 @@ function clearInventory() {
 
 function openVcenterModal() {
   const form = $("#vcenter-form");
+  editingVcenterId = null;
+  $("#vcenter-modal-title").textContent = "Adicionar vCenter";
+  form.querySelector("button[type='submit']").textContent = "Cadastrar";
   form.reset();
   form.insecure.checked = true;
   setStatus("#vcenter-status", "", "");
@@ -221,8 +226,44 @@ function openVcenterModal() {
 
 function openRackTablesModal() {
   const form = $("#racktables-form");
+  editingRackTablesId = null;
+  $("#racktables-modal-title").textContent = "Adicionar RackTables";
+  form.querySelector("button[type='submit']").textContent = "Salvar";
   form.reset();
   setStatus("#racktables-status", "", "");
+  openModal("#racktables-modal");
+  form.name.focus();
+}
+
+function openEditVcenterModal(id) {
+  const vcenter = state.vcenters.find((item) => item.id === id);
+  if (!vcenter) return;
+  const form = $("#vcenter-form");
+  editingVcenterId = id;
+  $("#vcenter-modal-title").textContent = "Editar vCenter";
+  form.querySelector("button[type='submit']").textContent = "Salvar";
+  form.name.value = vcenter.name || "";
+  form.host.value = vcenter.host || "";
+  form.username.value = vcenter.username || "";
+  form.password.value = "";
+  form.insecure.checked = Boolean(vcenter.insecure);
+  setStatus("#vcenter-status", "Informe a senha para salvar alteracoes.", "");
+  openModal("#vcenter-modal");
+  form.name.focus();
+}
+
+function openEditRackTablesModal(id) {
+  const config = state.racktablesConfigs.find((item) => item.id === id);
+  if (!config) return;
+  const form = $("#racktables-form");
+  editingRackTablesId = id;
+  $("#racktables-modal-title").textContent = "Editar RackTables";
+  form.querySelector("button[type='submit']").textContent = "Salvar";
+  form.name.value = config.name || "";
+  form.baseUrl.value = config.baseUrl || "";
+  form.username.value = config.username || "";
+  form.password.value = "";
+  setStatus("#racktables-status", "Informe a senha para salvar alteracoes.", "");
   openModal("#racktables-modal");
   form.name.focus();
 }
@@ -277,20 +318,25 @@ async function testVcenter() {
 async function saveVcenter(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  setStatus("#vcenter-status", "Testando e cadastrando...", "");
+  const editing = Boolean(editingVcenterId);
+  setStatus("#vcenter-status", editing ? "Testando e salvando..." : "Testando e cadastrando...", "");
   try {
-    const result = await api("/api/vcenters", { method: "POST", body: formJson(form) });
+    const result = await api(editing ? `/api/vcenters/${editingVcenterId}` : "/api/vcenters", {
+      method: editing ? "PUT" : "POST",
+      body: formJson(form)
+    });
+    editingVcenterId = null;
     form.reset();
     form.insecure.checked = true;
     await loadVcenters();
     closeModal("#vcenter-modal");
-    showConfirmation("vCenter cadastrado", [
+    showConfirmation(editing ? "vCenter atualizado" : "vCenter cadastrado", [
       ["Nome", result.name],
       ["Host", result.host],
       ["IP", result.ip || ""],
       ["Conexao", result.lastTest?.ok ? "OK" : "Pendente"]
     ]);
-    setStatus("#integration-status", `vCenter ${result.name} cadastrado.`, "ok");
+    setStatus("#integration-status", `vCenter ${result.name} ${editing ? "atualizado" : "cadastrado"}.`, "ok");
   } catch (error) {
     setStatus("#vcenter-status", error.message, "error");
   }
@@ -313,20 +359,25 @@ async function testRackTables() {
 async function saveRackTables(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  setStatus("#racktables-status", "Salvando RackTables...", "");
+  const editing = Boolean(editingRackTablesId);
+  setStatus("#racktables-status", editing ? "Testando e salvando RackTables..." : "Salvando RackTables...", "");
   try {
-    const result = await api("/api/racktables/config", { method: "POST", body: formJson(form) });
+    const result = await api(editing ? `/api/racktables/${editingRackTablesId}` : "/api/racktables/config", {
+      method: editing ? "PUT" : "POST",
+      body: formJson(form)
+    });
+    editingRackTablesId = null;
     await loadRackTablesConfig();
     $("#create-racktables").value = result.id;
     await loadRackTablesData();
     closeModal("#racktables-modal");
-    showConfirmation("RackTables cadastrado", [
+    showConfirmation(editing ? "RackTables atualizado" : "RackTables cadastrado", [
       ["Nome", result.name],
       ["URL", result.baseUrl],
       ["Usuario", result.username],
       ["Conexao", "OK"]
     ]);
-    setStatus("#integration-status", `RackTables configurado: ${result.baseUrl}`, "ok");
+    setStatus("#integration-status", `RackTables ${result.name} ${editing ? "atualizado" : "configurado"}.`, "ok");
   } catch (error) {
     setStatus("#racktables-status", error.message, "error");
   }
@@ -496,6 +547,7 @@ function renderVcenters() {
         <span class="row-actions">
           <span class="pill ${vcenter.lastTest?.ok ? "ok" : "error"}">${vcenter.lastTest?.ok ? "OK" : "Erro"}</span>
           <button type="button" class="mini-button" data-action="test-vcenter" data-id="${vcenter.id}">Testar</button>
+          <button type="button" class="mini-button" data-action="edit-vcenter" data-id="${vcenter.id}">Editar</button>
           <button type="button" class="mini-button danger" data-action="delete-vcenter" data-id="${vcenter.id}">Remover</button>
         </span>
       </div>
@@ -504,6 +556,9 @@ function renderVcenters() {
 
   container.querySelectorAll("[data-action='test-vcenter']").forEach((button) => {
     button.addEventListener("click", () => retestSavedVcenter(button.dataset.id));
+  });
+  container.querySelectorAll("[data-action='edit-vcenter']").forEach((button) => {
+    button.addEventListener("click", () => openEditVcenterModal(button.dataset.id));
   });
   container.querySelectorAll("[data-action='delete-vcenter']").forEach((button) => {
     button.addEventListener("click", () => deleteSavedVcenter(button.dataset.id));
@@ -530,6 +585,7 @@ function renderRackTablesConfigs() {
         <span class="row-actions">
           <span class="pill ${config.lastTest?.ok ? "ok" : config.lastTest ? "error" : ""}">${config.lastTest?.ok ? "OK" : config.lastTest ? "Erro" : "Sem teste"}</span>
           <button type="button" class="mini-button" data-action="test-racktables" data-id="${config.id}">Testar</button>
+          <button type="button" class="mini-button" data-action="edit-racktables" data-id="${config.id}">Editar</button>
           <button type="button" class="mini-button danger" data-action="delete-racktables" data-id="${config.id}">Remover</button>
         </span>
       </div>
@@ -538,6 +594,9 @@ function renderRackTablesConfigs() {
 
   container.querySelectorAll("[data-action='test-racktables']").forEach((button) => {
     button.addEventListener("click", () => retestSavedRackTables(button.dataset.id));
+  });
+  container.querySelectorAll("[data-action='edit-racktables']").forEach((button) => {
+    button.addEventListener("click", () => openEditRackTablesModal(button.dataset.id));
   });
   container.querySelectorAll("[data-action='delete-racktables']").forEach((button) => {
     button.addEventListener("click", () => deleteSavedRackTables(button.dataset.id));
