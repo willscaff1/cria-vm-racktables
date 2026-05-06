@@ -38,11 +38,7 @@ async function main() {
   await fs.mkdir(dataDir, { recursive: true });
   await ensureJson("vcenters.json", []);
   await ensureJson("jobs.json", []);
-  await ensureJson("racktables.json", {
-    baseUrl: process.env.RACKTABLES_URL || "http://racktables.local",
-    username: process.env.RACKTABLES_USERNAME || "",
-    password: process.env.RACKTABLES_PASSWORD || ""
-  });
+  await ensureJson("racktables.json", []);
 
   const server = http.createServer(route);
   server.listen(port, () => {
@@ -75,8 +71,8 @@ async function routeApi(req, res, url) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/racktables/config") {
-    const config = await getRackTablesDisplayConfig();
-    sendJson(res, 200, maskRackTablesConfig(config));
+    const configs = await getRackTablesDisplayConfigs();
+    sendJson(res, 200, configs.map(maskRackTablesConfig));
     return;
   }
 
@@ -96,19 +92,39 @@ async function routeApi(req, res, url) {
       sendJson(res, 400, result);
       return;
     }
-    await saveJson("racktables.json", config);
-    sendJson(res, 201, maskRackTablesConfig(config));
+
+    const configs = await getRackTablesStoredConfigs();
+    const now = new Date().toISOString();
+    const incomingName = requiredText(body.name, "Nome do RackTables");
+    const duplicate = configs.find((item) => item.name.toLowerCase() === incomingName.toLowerCase() || item.baseUrl.toLowerCase() === config.baseUrl.toLowerCase());
+    if (duplicate) {
+      sendJson(res, 409, { error: `RackTables ja cadastrado: ${duplicate.name} (${duplicate.baseUrl})` });
+      return;
+    }
+
+    const record = {
+      id: crypto.randomUUID(),
+      name: incomingName,
+      ...config,
+      createdAt: now,
+      updatedAt: now,
+      lastTest: { ...result, testedAt: now }
+    };
+
+    configs.push(record);
+    await saveJson("racktables.json", configs);
+    sendJson(res, 201, maskRackTablesConfig(record));
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/racktables/options") {
-    const options = await getRackTablesOptions();
+    const options = await getRackTablesOptions(url.searchParams.get("racktablesId"));
     sendJson(res, 200, options);
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/racktables/free-sids") {
-    const sids = await getRackTablesFreeSids();
+    const sids = await getRackTablesFreeSids(url.searchParams.get("racktablesId"));
     sendJson(res, 200, sids);
     return;
   }
@@ -116,13 +132,13 @@ async function routeApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/racktables/free-ips") {
     const limit = Number(url.searchParams.get("limit") || 300);
     const networkId = url.searchParams.get("networkId");
-    const ips = await getRackTablesFreeIps({ limit, networkId });
+    const ips = await getRackTablesFreeIps({ limit, networkId, racktablesId: url.searchParams.get("racktablesId") });
     sendJson(res, 200, ips);
     return;
   }
 
   if (req.method === "GET" && url.pathname === "/api/racktables/networks") {
-    const networks = await getRackTablesIpv4Networks();
+    const networks = await getRackTablesIpv4Networks(url.searchParams.get("racktablesId"));
     sendJson(res, 200, networks);
     return;
   }
@@ -492,7 +508,7 @@ function isVcenterNotFound(error) {
 async function validateRackTablesProvisionPreflight(payload) {
   if (!payload.racktables?.assetTag) return;
 
-  const config = await getRackTablesConfig();
+  const config = await getRackTablesConfig(payload.racktablesId || payload.racktables.racktablesId);
   let objectId = payload.racktables.objectId || null;
   if (!objectId) {
     objectId = await findRackTablesObjectId(config, payload.racktables.commonName, payload.vm.label);
@@ -505,7 +521,7 @@ async function validateRackTablesProvisionPreflight(payload) {
 }
 
 async function createRackTablesVm(payload, vmResult, job) {
-  const config = await getRackTablesConfig();
+  const config = await getRackTablesConfig(payload.racktablesId || payload.racktables.racktablesId);
   const comment = buildRackTablesComment(payload, vmResult, job);
   let objectId = payload.racktables.objectId || null;
 
@@ -1465,8 +1481,8 @@ function rawVcenterRequest(vcenter, method, apiPath, headers = {}, body = null) 
   });
 }
 
-async function getRackTablesOptions() {
-  const config = await getRackTablesConfig();
+async function getRackTablesOptions(racktablesId = null) {
+  const config = await getRackTablesConfig(racktablesId);
   const [equipe, orgao, situacao, tagPage] = await Promise.all([
     getRackTablesChapter(config, RACKTABLES.chapters.equipeResponsavel),
     getRackTablesChapter(config, RACKTABLES.chapters.orgao),
@@ -1482,8 +1498,8 @@ async function getRackTablesOptions() {
   };
 }
 
-async function getRackTablesFreeSids() {
-  const config = await getRackTablesConfig();
+async function getRackTablesFreeSids(racktablesId = null) {
+  const config = await getRackTablesConfig(racktablesId);
   const page = await rackTablesRequest(
     config,
     "GET",
@@ -1492,24 +1508,24 @@ async function getRackTablesFreeSids() {
   return parseRackTablesFreeSids(page.body);
 }
 
-async function getRackTablesIpv4Networks() {
-  const config = await getRackTablesConfig();
+async function getRackTablesIpv4Networks(racktablesId = null) {
+  const config = await getRackTablesConfig(racktablesId);
   const networksPage = await rackTablesRequest(config, "GET", "/index.php?page=ipv4space&tab=default");
   return parseRackTablesIpv4Networks(networksPage.body)
     .sort((a, b) => a.prefix.localeCompare(b.prefix, "pt-BR", { numeric: true }));
 }
 
-async function getRackTablesFreeIps({ limit = 300, networkId = null } = {}) {
-  const config = await getRackTablesConfig();
+async function getRackTablesFreeIps({ limit = 300, networkId = null, racktablesId = null } = {}) {
+  const config = await getRackTablesConfig(racktablesId);
   let networks = [];
 
   if (networkId) {
-    const allNetworks = await getRackTablesIpv4Networks();
+    const allNetworks = await getRackTablesIpv4Networks(racktablesId);
     const selected = allNetworks.find((network) => network.id === String(networkId));
     if (!selected) throw new Error("Rede IPv4 nao encontrada no RackTables.");
     networks = [selected];
   } else {
-    networks = (await getRackTablesIpv4Networks()).filter((network) => network.prefixLength >= 23);
+    networks = (await getRackTablesIpv4Networks(racktablesId)).filter((network) => network.prefixLength >= 23);
   }
 
   const candidates = [];
@@ -1892,22 +1908,47 @@ function maskJob(job) {
   };
 }
 
-async function getRackTablesConfig() {
-  const stored = await loadJson("racktables.json", {});
-  return normalizeRackTablesConfig({
-    baseUrl: process.env.RACKTABLES_URL || stored.baseUrl || "http://racktables.local",
-    username: process.env.RACKTABLES_USERNAME || stored.username || "",
-    password: process.env.RACKTABLES_PASSWORD || stored.password || ""
-  });
+async function getRackTablesConfig(id = null) {
+  const configs = await getRackTablesStoredConfigs();
+  const selected = id
+    ? configs.find((item) => item.id === id)
+    : configs[0];
+  if (!selected) throw new Error("RackTables nao configurado.");
+  return normalizeRackTablesConfig(selected);
 }
 
-async function getRackTablesDisplayConfig() {
-  const stored = await loadJson("racktables.json", {});
-  return {
-    baseUrl: process.env.RACKTABLES_URL || stored.baseUrl || "http://racktables.local",
-    username: process.env.RACKTABLES_USERNAME || stored.username || "",
-    password: process.env.RACKTABLES_PASSWORD || stored.password || ""
-  };
+async function getRackTablesDisplayConfigs() {
+  return await getRackTablesStoredConfigs();
+}
+
+async function getRackTablesStoredConfigs() {
+  const stored = await loadJson("racktables.json", []);
+  const configs = Array.isArray(stored)
+    ? stored
+    : stored?.baseUrl || stored?.username || stored?.password
+      ? [{ id: stored.id || "default", name: stored.name || "RackTables", ...stored }]
+      : [];
+
+  if (!configs.length && (process.env.RACKTABLES_URL || process.env.RACKTABLES_USERNAME || process.env.RACKTABLES_PASSWORD)) {
+    configs.push({
+      id: "env",
+      name: process.env.RACKTABLES_NAME || "RackTables",
+      baseUrl: process.env.RACKTABLES_URL || "http://racktables.local",
+      username: process.env.RACKTABLES_USERNAME || "",
+      password: process.env.RACKTABLES_PASSWORD || ""
+    });
+  }
+
+  return configs.map((config, index) => ({
+    id: config.id || crypto.createHash("sha1").update(`${config.baseUrl || ""}:${config.username || ""}:${index}`).digest("hex").slice(0, 12),
+    name: config.name || `RackTables ${index + 1}`,
+    baseUrl: config.baseUrl || "",
+    username: config.username || "",
+    password: config.password || "",
+    createdAt: config.createdAt || null,
+    updatedAt: config.updatedAt || null,
+    lastTest: config.lastTest || null
+  }));
 }
 
 function normalizeRackTablesConfig(input) {

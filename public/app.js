@@ -1,5 +1,6 @@
 const state = {
   vcenters: [],
+  racktablesConfigs: [],
   inventory: null,
   racktables: {
     equipeResponsavel: [],
@@ -38,11 +39,23 @@ function setupNavigation() {
 }
 
 function setupForms() {
+  $("#open-vcenter-modal").addEventListener("click", openVcenterModal);
+  $("#open-racktables-modal").addEventListener("click", openRackTablesModal);
+  $("#confirm-ok").addEventListener("click", () => closeModal("#confirm-modal"));
+  $$("[data-close-modal]").forEach((button) => {
+    button.addEventListener("click", () => closeModal(`#${button.closest(".modal-backdrop").id}`));
+  });
+  $$(".modal-backdrop").forEach((backdrop) => {
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) closeModal(`#${backdrop.id}`);
+    });
+  });
   $("#test-vcenter").addEventListener("click", testVcenter);
   $("#vcenter-form").addEventListener("submit", saveVcenter);
   $("#racktables-form").addEventListener("submit", saveRackTables);
   $("#test-racktables").addEventListener("click", testRackTables);
   $("#create-vcenter").addEventListener("change", loadInventory);
+  $("#create-racktables").addEventListener("change", loadRackTablesData);
   $("#racktables-network").addEventListener("change", loadFreeIps);
   $("#tag-picker").addEventListener("change", addSelectedTag);
   $("#template-id").addEventListener("change", applySelectedTemplateDetails);
@@ -54,7 +67,8 @@ function setupForms() {
 }
 
 async function initialLoad() {
-  await Promise.allSettled([loadVcenters(), loadRackTablesConfig(), loadRackTablesOptions(), loadFreeSids(), loadRackTablesNetworks()]);
+  await Promise.allSettled([loadVcenters(), loadRackTablesConfig()]);
+  await loadRackTablesData();
   await loadInventory();
   updateDeployMode();
 }
@@ -67,19 +81,37 @@ async function loadVcenters() {
 
 async function loadRackTablesConfig() {
   try {
-    const config = await api("/api/racktables/config");
-    const form = $("#racktables-form");
-    form.baseUrl.value = config.baseUrl || "";
-    form.username.value = config.username || "";
-    form.password.value = config.password === "********" ? "" : config.password || "";
+    state.racktablesConfigs = await api("/api/racktables/config");
+    fillSelect($("#create-racktables"), state.racktablesConfigs, "id", rackTablesLabel, "Selecione...");
+    const count = state.racktablesConfigs.length;
+    $("#racktables-select-status").textContent = count === 1 ? "1 RackTables cadastrado" : `${count} RackTables cadastrados`;
+    setStatus("#integration-status", count ? `${count} RackTables cadastrado(s).` : "RackTables ainda nao configurado.", "");
   } catch {
-    setStatus("#racktables-status", "RackTables ainda nao configurado.", "");
+    state.racktablesConfigs = [];
+    fillSelect($("#create-racktables"), [], "id", "name", "Selecione...");
+    setStatus("#integration-status", "RackTables ainda nao configurado.", "");
   }
 }
 
+async function loadRackTablesData() {
+  selectedTagIds.clear();
+  state.freeIps = [];
+  renderFreeIps();
+  await Promise.allSettled([loadRackTablesOptions(), loadFreeSids(), loadRackTablesNetworks()]);
+}
+
 async function loadRackTablesOptions() {
+  const racktablesId = selectedRackTablesId();
+  if (!racktablesId) {
+    state.racktables = { equipeResponsavel: [], orgaos: [], situacoes: [], tags: [] };
+    fillSelect($("#equipe-responsavel"), [], "id", "name", "Selecione...");
+    fillSelect($("#orgao"), [], "id", "name", "Selecione...");
+    fillSelect($("#situacao"), [], "id", "name", "Selecione...");
+    fillSelect($("#tag-picker"), [], "id", "name", "Adicionar tag...");
+    return;
+  }
   try {
-    state.racktables = await api("/api/racktables/options");
+    state.racktables = await api(`/api/racktables/options?racktablesId=${encodeURIComponent(racktablesId)}`);
     fillSelect($("#equipe-responsavel"), state.racktables.equipeResponsavel, "id", "name", "Selecione...");
     fillSelect($("#orgao"), state.racktables.orgaos, "id", "name", "Selecione...");
     fillSelect($("#situacao"), state.racktables.situacoes, "id", "name", "Selecione...");
@@ -91,8 +123,14 @@ async function loadRackTablesOptions() {
 }
 
 async function loadFreeSids() {
+  const racktablesId = selectedRackTablesId();
+  if (!racktablesId) {
+    state.freeSids = [];
+    renderFreeSids();
+    return;
+  }
   try {
-    state.freeSids = await api("/api/racktables/free-sids");
+    state.freeSids = await api(`/api/racktables/free-sids?racktablesId=${encodeURIComponent(racktablesId)}`);
     renderFreeSids();
   } catch (error) {
     state.freeSids = [];
@@ -102,8 +140,9 @@ async function loadFreeSids() {
 }
 
 async function loadFreeIps() {
+  const racktablesId = selectedRackTablesId();
   const networkId = $("#racktables-network").value;
-  if (!networkId) {
+  if (!racktablesId || !networkId) {
     state.freeIps = [];
     renderFreeIps();
     return;
@@ -111,7 +150,7 @@ async function loadFreeIps() {
 
   try {
     setIpStatus("Buscando IPs livres/offline da rede selecionada...");
-    state.freeIps = await api(`/api/racktables/free-ips?limit=300&networkId=${encodeURIComponent(networkId)}`);
+    state.freeIps = await api(`/api/racktables/free-ips?limit=300&networkId=${encodeURIComponent(networkId)}&racktablesId=${encodeURIComponent(racktablesId)}`);
     renderFreeIps();
   } catch (error) {
     state.freeIps = [];
@@ -121,8 +160,14 @@ async function loadFreeIps() {
 }
 
 async function loadRackTablesNetworks() {
+  const racktablesId = selectedRackTablesId();
+  if (!racktablesId) {
+    state.networks = [];
+    renderRackTablesNetworks();
+    return;
+  }
   try {
-    state.networks = await api("/api/racktables/networks");
+    state.networks = await api(`/api/racktables/networks?racktablesId=${encodeURIComponent(racktablesId)}`);
     renderRackTablesNetworks();
   } catch (error) {
     state.networks = [];
@@ -163,6 +208,49 @@ function clearInventory() {
   });
 }
 
+function openVcenterModal() {
+  const form = $("#vcenter-form");
+  form.reset();
+  form.insecure.checked = true;
+  setStatus("#vcenter-status", "", "");
+  openModal("#vcenter-modal");
+  form.name.focus();
+}
+
+function openRackTablesModal() {
+  const form = $("#racktables-form");
+  form.reset();
+  setStatus("#racktables-status", "", "");
+  openModal("#racktables-modal");
+  form.name.focus();
+}
+
+function openModal(selector) {
+  $(selector).classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeModal(selector) {
+  $(selector).classList.add("hidden");
+  if (!$(".modal-backdrop:not(.hidden)")) {
+    document.body.classList.remove("modal-open");
+  }
+}
+
+function showConfirmation(title, fields) {
+  $("#confirm-modal-title").textContent = title;
+  $("#confirm-summary").innerHTML = fields
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([label, value]) => `
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(value)}</span>
+      </div>
+    `).join("");
+  openModal("#confirm-modal");
+  $("#confirm-ok").focus();
+}
+
 function applySuggestions() {
   const suggestions = state.inventory?.suggestions || {};
   if (suggestions.cluster?.cluster) $("#cluster-id").value = suggestions.cluster.cluster;
@@ -189,11 +277,18 @@ async function saveVcenter(event) {
   const form = event.currentTarget;
   setStatus("#vcenter-status", "Testando e cadastrando...", "");
   try {
-    await api("/api/vcenters", { method: "POST", body: formJson(form) });
+    const result = await api("/api/vcenters", { method: "POST", body: formJson(form) });
     form.reset();
     form.insecure.checked = true;
     await loadVcenters();
-    setStatus("#vcenter-status", "vCenter cadastrado.", "ok");
+    closeModal("#vcenter-modal");
+    showConfirmation("vCenter cadastrado", [
+      ["Nome", result.name],
+      ["Host", result.host],
+      ["IP", result.ip || ""],
+      ["Conexao", result.lastTest?.ok ? "OK" : "Pendente"]
+    ]);
+    setStatus("#integration-status", `vCenter ${result.name} cadastrado.`, "ok");
   } catch (error) {
     setStatus("#vcenter-status", error.message, "error");
   }
@@ -218,9 +313,18 @@ async function saveRackTables(event) {
   const form = event.currentTarget;
   setStatus("#racktables-status", "Salvando RackTables...", "");
   try {
-    await api("/api/racktables/config", { method: "POST", body: formJson(form) });
-    await loadRackTablesOptions();
-    setStatus("#racktables-status", "RackTables configurado.", "ok");
+    const result = await api("/api/racktables/config", { method: "POST", body: formJson(form) });
+    await loadRackTablesConfig();
+    $("#create-racktables").value = result.id;
+    await loadRackTablesData();
+    closeModal("#racktables-modal");
+    showConfirmation("RackTables cadastrado", [
+      ["Nome", result.name],
+      ["URL", result.baseUrl],
+      ["Usuario", result.username],
+      ["Conexao", "OK"]
+    ]);
+    setStatus("#integration-status", `RackTables configurado: ${result.baseUrl}`, "ok");
   } catch (error) {
     setStatus("#racktables-status", error.message, "error");
   }
@@ -239,6 +343,8 @@ async function provisionVm(event) {
   const payload = {
     vcenterId: data.vcenterId,
     vcenterName: selectedVcenter?.name || "",
+    racktablesId: data.racktablesId,
+    racktablesName: selectedText("#create-racktables"),
     deployMode: data.deployMode,
     templateId: data.templateId,
     templateName: selectedText("#template-id"),
@@ -262,6 +368,7 @@ async function provisionVm(event) {
       networkName: selectedText("#network-id")
     },
     racktables: {
+      racktablesId: data.racktablesId,
       commonName: data.commonName,
       objectId: selectedOptionData("#free-sid", "objectId"),
       assetTag: data.assetTag,
@@ -571,6 +678,10 @@ function renderRackTablesNetworks() {
   }
 }
 
+function selectedRackTablesId() {
+  return $("#create-racktables")?.value || "";
+}
+
 function addSelectedTag(event) {
   const value = event.currentTarget.value;
   if (!value) return;
@@ -679,6 +790,10 @@ function datastoreLabel(item) {
 function templateLabel(item) {
   const source = item.sourceLabel || item.source || "Template";
   return `${item.name || item.template || item.id || "Template"} - ${source}`;
+}
+
+function rackTablesLabel(item) {
+  return item.name ? `${item.name} - ${item.baseUrl}` : item.baseUrl;
 }
 
 function selectedText(selector) {

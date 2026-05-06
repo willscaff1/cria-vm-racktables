@@ -24,6 +24,10 @@ body {
   font: 14px/1.4 "Segoe UI", Arial, sans-serif;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input,
 select {
@@ -246,6 +250,14 @@ button.secondary:hover {
   margin-bottom: 16px;
 }
 
+.integration-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
 .panel {
   display: grid;
   gap: 12px;
@@ -367,6 +379,98 @@ button.secondary:hover {
   color: var(--error);
 }
 
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0;
+  background: #fff;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.icon-button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.45);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(17, 24, 39, 0.24);
+}
+
+.modal.small {
+  width: min(430px, 100%);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.confirm-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.confirm-summary div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.confirm-summary div:last-child {
+  border-bottom: 0;
+}
+
+.confirm-summary strong {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.confirm-summary span {
+  word-break: break-word;
+}
+
 .disk-editor {
   grid-column: 1 / -1;
   display: grid;
@@ -466,7 +570,17 @@ button.secondary:hover {
     grid-template-columns: 1fr;
   }
 
+  .integration-actions,
+  .modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .row {
+    grid-template-columns: 1fr;
+  }
+
+  .confirm-summary div {
     grid-template-columns: 1fr;
   }
 }

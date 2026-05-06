@@ -7,11 +7,12 @@ O projeto foi criado como MVP operacional para o fluxo:
 1. selecionar vCenter;
 2. carregar inventario de cluster, host, datastore, rede e templates;
 3. preencher dados da VM;
-4. selecionar SID/IP livres no RackTables;
-5. criar a VM no vCenter;
-6. atualizar o objeto VM no RackTables;
-7. alocar o IP na aba de IP do objeto;
-8. registrar o resultado em historico local.
+4. selecionar qual RackTables sera usado;
+5. selecionar SID/IP livres no RackTables escolhido;
+6. criar a VM no vCenter;
+7. atualizar o objeto VM no RackTables;
+8. alocar o IP na aba de IP do objeto;
+9. registrar o resultado em historico local.
 
 ## Linguagem e stack
 
@@ -174,10 +175,10 @@ GET  /api/vcenters/:id/inventory
 GET  /api/racktables/config
 POST /api/racktables/config/test
 POST /api/racktables/config
-GET  /api/racktables/options
-GET  /api/racktables/free-sids
-GET  /api/racktables/networks
-GET  /api/racktables/free-ips
+GET  /api/racktables/options?racktablesId=:id
+GET  /api/racktables/free-sids?racktablesId=:id
+GET  /api/racktables/networks?racktablesId=:id
+GET  /api/racktables/free-ips?racktablesId=:id
 GET  /api/jobs
 POST /api/provision/preflight
 POST /api/provision
@@ -191,6 +192,7 @@ Antes de criar VM, o sistema valida:
 
 - payload obrigatorio;
 - vCenter cadastrado;
+- RackTables selecionado;
 - sessao vCenter;
 - nome de VM ainda livre;
 - template encontrado;
@@ -290,6 +292,8 @@ Pontos importantes antes de producao:
 ## Observacoes de operacao
 
 - O sistema filtra IP livre por RackTables e por ping offline.
+- O sistema suporta varios RackTables cadastrados, por exemplo LAB e Producao.
+- A tela de criacao exige selecionar qual RackTables sera usado.
 - O asset tag do RackTables deve ser o mesmo IP escolhido para a VM.
 - Se o IP ja existir como asset tag em outro objeto, o preflight bloqueia a criacao.
 - A lista de IPs livres remove IPs que ja aparecem como asset tag em objetos VM.
@@ -323,6 +327,7 @@ Implementado:
 
 - cadastro/teste de vCenter;
 - cadastro/teste de RackTables;
+- cadastro/teste de multiplos RackTables;
 - leitura de inventario vCenter;
 - leitura de templates de inventario via SOAP;
 - leitura de dropdowns do RackTables;
@@ -330,6 +335,7 @@ Implementado:
 - busca de redes IPv4;
 - busca de IPs livres/offline;
 - filtro de IP que ja existe como asset tag;
+- selecao de RackTables no formulario de criacao;
 - preflight de vCenter e RackTables;
 - clone de template de inventario;
 - reconfiguracao de CPU, memoria, rede e discos;

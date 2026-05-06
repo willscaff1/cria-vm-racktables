@@ -7,6 +7,8 @@
     "request": {
       "vcenterId": "uuid",
       "vcenterName": "VCENTER-LAB",
+      "racktablesId": "uuid",
+      "racktablesName": "RackTables LAB",
       "deployMode": "template",
       "templateId": "inventory:vm-123",
       "templateName": "linux-template",
@@ -28,6 +30,7 @@
         "networkName": "VM Network"
       },
       "racktables": {
+        "racktablesId": "uuid",
         "commonName": "S0001",
         "objectId": "1",
         "assetTag": "192.0.2.20",
@@ -46,4 +49,3 @@
     ]
   }
 ]
-

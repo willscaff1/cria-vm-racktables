@@ -105,6 +105,11 @@
             <fieldset>
               <legend>RackTables</legend>
               <label>
+                RackTables
+                <select name="racktablesId" id="create-racktables" required></select>
+                <span id="racktables-select-status" class="field-status"></span>
+              </label>
+              <label>
                 Common Name / SID
                 <select name="commonName" id="free-sid" required></select>
                 <span id="sid-status" class="field-status"></span>
@@ -157,61 +162,15 @@
         <section id="view-vcenters" class="view">
           <div class="page-head">
             <div>
-              <h1>Cadastro de vCenter</h1>
-              <p>O sistema resolve DNS, testa a API do vCenter e so entao libera o cadastro.</p>
+              <h1>Integracoes</h1>
+              <p>Cadastre vCenters e RackTables para liberar o fluxo de provisionamento.</p>
             </div>
           </div>
 
-          <div class="split">
-            <form id="vcenter-form" class="panel">
-              <h2>Novo vCenter</h2>
-              <label>
-                Nome
-                <input name="name" required placeholder="VCENTER-PROD">
-              </label>
-              <label>
-                FQDN ou IP
-                <input name="host" required placeholder="vcenter.dominio.local">
-              </label>
-              <label>
-                Usuario
-                <input name="username" required placeholder="administrator@vsphere.local">
-              </label>
-              <label>
-                Senha
-                <input type="password" name="password" required>
-              </label>
-              <label class="checkbox">
-                <input type="checkbox" name="insecure" checked>
-                Ignorar certificado TLS invalido/self-signed
-              </label>
-              <div class="action-row">
-                <button type="button" id="test-vcenter" class="secondary">Testar conexao</button>
-                <button type="submit" class="primary">Cadastrar</button>
-              </div>
-              <div id="vcenter-status" class="status"></div>
-            </form>
-
-            <form id="racktables-form" class="panel">
-              <h2>RackTables</h2>
-              <label>
-                URL
-                <input name="baseUrl" required placeholder="http://racktables.local">
-              </label>
-              <label>
-                Usuario
-                <input name="username" required>
-              </label>
-              <label>
-                Senha
-                <input type="password" name="password" required>
-              </label>
-              <div class="action-row">
-                <button type="button" id="test-racktables" class="secondary">Testar</button>
-                <button type="submit" class="primary">Salvar</button>
-              </div>
-              <div id="racktables-status" class="status"></div>
-            </form>
+          <div class="integration-actions">
+            <button type="button" id="open-vcenter-modal" class="primary">Adicionar vCenter</button>
+            <button type="button" id="open-racktables-modal" class="secondary">Adicionar RackTables</button>
+            <span id="integration-status" class="status"></span>
           </div>
 
           <div class="panel">
@@ -231,6 +190,89 @@
           <div id="job-list" class="table"></div>
         </section>
       </main>
+    </div>
+
+    <div id="vcenter-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="vcenter-modal-title">
+      <div class="modal">
+        <div class="modal-head">
+          <h2 id="vcenter-modal-title">Adicionar vCenter</h2>
+          <button type="button" class="icon-button" data-close-modal aria-label="Fechar">x</button>
+        </div>
+        <form id="vcenter-form" class="modal-body">
+          <label>
+            Nome
+            <input name="name" required placeholder="VCENTER-PROD">
+          </label>
+          <label>
+            FQDN ou IP
+            <input name="host" required placeholder="vcenter.dominio.local">
+          </label>
+          <label>
+            Usuario
+            <input name="username" required placeholder="administrator@vsphere.local">
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" required>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="insecure" checked>
+            Ignorar certificado TLS invalido/self-signed
+          </label>
+          <div class="modal-actions">
+            <button type="button" id="test-vcenter" class="secondary">Testar conexao</button>
+            <button type="submit" class="primary">Cadastrar</button>
+          </div>
+          <div id="vcenter-status" class="status"></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="racktables-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="racktables-modal-title">
+      <div class="modal">
+        <div class="modal-head">
+          <h2 id="racktables-modal-title">Adicionar RackTables</h2>
+          <button type="button" class="icon-button" data-close-modal aria-label="Fechar">x</button>
+        </div>
+        <form id="racktables-form" class="modal-body">
+          <label>
+            Nome
+            <input name="name" required placeholder="RackTables LAB">
+          </label>
+          <label>
+            URL
+            <input name="baseUrl" required placeholder="http://racktables.local">
+          </label>
+          <label>
+            Usuario
+            <input name="username" required>
+          </label>
+          <label>
+            Senha
+            <input type="password" name="password" required>
+          </label>
+          <div class="modal-actions">
+            <button type="button" id="test-racktables" class="secondary">Testar</button>
+            <button type="submit" class="primary">Salvar</button>
+          </div>
+          <div id="racktables-status" class="status"></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div class="modal small">
+        <div class="modal-head">
+          <h2 id="confirm-modal-title">Cadastro confirmado</h2>
+          <button type="button" class="icon-button" data-close-modal aria-label="Fechar">x</button>
+        </div>
+        <div class="modal-body">
+          <div id="confirm-summary" class="confirm-summary"></div>
+          <div class="modal-actions">
+            <button type="button" id="confirm-ok" class="primary">OK</button>
+          </div>
+        </div>
+      </div>
     </div>
     <script src="/app.js"></script>
   </body>

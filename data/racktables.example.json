@@ -1,6 +1,32 @@
-{
-  "baseUrl": "http://racktables.local",
-  "username": "usuario",
-  "password": "senha"
-}
-
+[
+  {
+    "id": "uuid",
+    "name": "RackTables LAB",
+    "baseUrl": "http://racktables-lab.local",
+    "username": "usuario",
+    "password": "senha",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "lastTest": {
+      "ok": true,
+      "statusCode": 200,
+      "message": "Conexao RackTables OK",
+      "testedAt": "2026-01-01T00:00:00.000Z"
+    }
+  },
+  {
+    "id": "uuid",
+    "name": "RackTables Producao",
+    "baseUrl": "http://racktables-prod.local",
+    "username": "usuario",
+    "password": "senha",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z",
+    "lastTest": {
+      "ok": true,
+      "statusCode": 200,
+      "message": "Conexao RackTables OK",
+      "testedAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+]
