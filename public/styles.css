@@ -502,6 +502,76 @@ button.secondary:hover {
   padding-top: 2px;
 }
 
+.iso-browser {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fbfcfd;
+}
+
+.iso-browser-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.iso-browser-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.iso-browser-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.iso-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border-color: var(--line);
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+.iso-entry span,
+.iso-entry small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.iso-entry.folder span {
+  color: var(--primary);
+}
+
+.iso-entry.selected {
+  border-color: var(--primary);
+  outline: 2px solid rgba(31, 111, 235, 0.14);
+}
+
+.iso-empty {
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.iso-empty.error {
+  color: var(--error);
+  border-color: #f1b9b4;
+}
+
 .disk-editor-head {
   display: flex;
   align-items: center;

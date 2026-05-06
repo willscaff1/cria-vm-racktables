@@ -10,7 +10,12 @@ const state = {
   },
   freeSids: [],
   freeIps: [],
-  networks: []
+  networks: [],
+  isoBrowser: {
+    path: "",
+    entries: [],
+    loading: false
+  }
 };
 
 const selectedTagIds = new Set();
@@ -56,8 +61,9 @@ function setupForms() {
   $("#racktables-network").addEventListener("change", loadFreeIps);
   $("#tag-picker").addEventListener("change", addSelectedTag);
   $("#template-id").addEventListener("change", applySelectedTemplateDetails);
-  $("#iso-datastore-id").addEventListener("change", updateIsoPathPreview);
-  $("#iso-file-path").addEventListener("input", updateIsoPathPreview);
+  $("#iso-datastore-id").addEventListener("change", handleIsoDatastoreChange);
+  $("#iso-up").addEventListener("click", () => loadIsoFolder(parentDatastorePath(state.isoBrowser.path)));
+  $("#iso-refresh").addEventListener("click", () => loadIsoFolder(state.isoBrowser.path));
   $("#add-disk").addEventListener("click", addDisk);
   $("#deploy-mode").addEventListener("change", updateDeployMode);
   $("#reload-create").addEventListener("click", initialLoad);
@@ -208,6 +214,9 @@ function clearInventory() {
   ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id"].forEach((selector) => {
     fillSelect($(selector), [], "id", "name", "Selecione...");
   });
+  state.isoBrowser = { path: "", entries: [], loading: false };
+  $("#iso-file-path").value = "";
+  renderIsoBrowser();
   updateIsoPathPreview();
 }
 
@@ -299,6 +308,9 @@ function applySuggestions() {
   if (suggestions.host?.host) $("#host-id").value = suggestions.host.host;
   if (suggestions.datastore?.datastore) $("#datastore-id").value = suggestions.datastore.datastore;
   if (suggestions.datastore?.datastore) $("#iso-datastore-id").value = suggestions.datastore.datastore;
+  state.isoBrowser = { path: "", entries: [], loading: false };
+  $("#iso-file-path").value = "";
+  renderIsoBrowser();
   updateIsoPathPreview();
 }
 
@@ -409,7 +421,7 @@ async function provisionVm(event) {
     templateName: selectedText("#template-id"),
     isoPath,
     isoDatastoreId: data.isoDatastoreId,
-    isoDatastoreName: selectedText("#iso-datastore-id"),
+    isoDatastoreName: selectedIsoDatastoreName(),
     vm: {
       label: data.label,
       cpu: Number(data.cpu || 0),
@@ -673,6 +685,9 @@ function updateDeployMode() {
   $("#iso-datastore-id").required = mode === "iso";
   $("#iso-file-path").required = mode === "iso";
   updateIsoPathPreview();
+  if (mode === "iso" && $("#iso-datastore-id").value && !state.isoBrowser.entries.length) {
+    loadIsoFolder("");
+  }
 }
 
 function buildIsoPath(data = null) {
@@ -689,7 +704,98 @@ function updateIsoPathPreview() {
   if (!preview) return;
   const mode = $("#deploy-mode")?.value;
   const isoPath = buildIsoPath();
-  preview.textContent = mode === "iso" && isoPath ? isoPath : "";
+  preview.textContent = mode === "iso" && isoPath ? `ISO selecionada: ${isoPath}` : "";
+}
+
+async function handleIsoDatastoreChange() {
+  state.isoBrowser = { path: "", entries: [], loading: false };
+  $("#iso-file-path").value = "";
+  updateIsoPathPreview();
+  renderIsoBrowser();
+  if ($("#deploy-mode").value === "iso") {
+    await loadIsoFolder("");
+  }
+}
+
+async function loadIsoFolder(folderPath = "") {
+  const vcenterId = $("#create-vcenter").value;
+  const datastoreId = $("#iso-datastore-id").value;
+  if (!vcenterId || !datastoreId) {
+    state.isoBrowser = { path: "", entries: [], loading: false };
+    renderIsoBrowser();
+    return;
+  }
+
+  state.isoBrowser.loading = true;
+  renderIsoBrowser();
+  try {
+    const result = await api(`/api/vcenters/${encodeURIComponent(vcenterId)}/datastore-files?datastoreId=${encodeURIComponent(datastoreId)}&path=${encodeURIComponent(folderPath || "")}`);
+    state.isoBrowser = { ...result, loading: false };
+    renderIsoBrowser();
+  } catch (error) {
+    state.isoBrowser = { path: folderPath || "", entries: [], loading: false, error: error.message };
+    renderIsoBrowser();
+  }
+}
+
+function renderIsoBrowser() {
+  const list = $("#iso-browser-list");
+  const current = $("#iso-current-path");
+  if (!list || !current) return;
+
+  const datastoreName = selectedIsoDatastoreName();
+  current.textContent = datastoreName ? `[${datastoreName}] ${state.isoBrowser.path || "/"}` : "Selecione o datastore da ISO.";
+  $("#iso-up").disabled = !state.isoBrowser.path || state.isoBrowser.loading;
+  $("#iso-refresh").disabled = !$("#iso-datastore-id").value || state.isoBrowser.loading;
+
+  if (state.isoBrowser.loading) {
+    list.innerHTML = `<div class="iso-empty">Carregando pastas e ISOs...</div>`;
+    return;
+  }
+
+  if (state.isoBrowser.error) {
+    list.innerHTML = `<div class="iso-empty error">${escapeHtml(state.isoBrowser.error)}</div>`;
+    return;
+  }
+
+  const entries = state.isoBrowser.entries || [];
+  if (!entries.length) {
+    list.innerHTML = `<div class="iso-empty">Nenhuma pasta ou ISO encontrada neste nivel.</div>`;
+    return;
+  }
+
+  const selectedPath = $("#iso-file-path").value;
+  list.innerHTML = entries.map((entry) => `
+    <button type="button" class="iso-entry ${entry.type === "folder" ? "folder" : "file"} ${entry.path === selectedPath ? "selected" : ""}" data-type="${entry.type}" data-path="${escapeHtml(entry.path)}">
+      <span>${entry.type === "folder" ? "Pasta" : "ISO"}</span>
+      <strong>${escapeHtml(entry.name)}</strong>
+      ${entry.size ? `<small>${bytes(entry.size)}</small>` : ""}
+    </button>
+  `).join("");
+
+  list.querySelectorAll(".iso-entry").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.type === "folder") {
+        loadIsoFolder(button.dataset.path);
+        return;
+      }
+      $("#iso-file-path").value = button.dataset.path;
+      updateIsoPathPreview();
+      renderIsoBrowser();
+    });
+  });
+}
+
+function selectedIsoDatastoreName() {
+  const datastoreId = $("#iso-datastore-id")?.value;
+  const datastore = state.inventory?.datastores?.find((item) => item.datastore === datastoreId);
+  return datastore?.name || "";
+}
+
+function parentDatastorePath(value) {
+  const parts = String(value || "").split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
 }
 
 function applySelectedTemplateDetails() {

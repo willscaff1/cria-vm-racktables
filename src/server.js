@@ -338,6 +338,17 @@ async function routeApi(req, res, url) {
     return;
   }
 
+  const datastoreFilesMatch = url.pathname.match(/^\/api\/vcenters\/([^/]+)\/datastore-files$/);
+  if (req.method === "GET" && datastoreFilesMatch) {
+    const vcenter = await findVcenter(datastoreFilesMatch[1]);
+    const result = await browseVcenterDatastore(vcenter, {
+      datastoreId: url.searchParams.get("datastoreId"),
+      folderPath: url.searchParams.get("path")
+    });
+    sendJson(res, 200, result);
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/jobs") {
     const jobs = await loadJson("jobs.json", []);
     sendJson(res, 200, jobs.map(maskJob));
@@ -573,6 +584,39 @@ async function attachIsoCdromToVm(vcenter, session, vmId, isoPath) {
   }
 
   return await vcenterJson(vcenter, session, "POST", `/rest/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cdrom`, { spec });
+}
+
+async function browseVcenterDatastore(vcenter, { datastoreId, folderPath }) {
+  const datastoreRef = requiredText(datastoreId, "Datastore da ISO");
+  const inventory = await getVcenterInventory(vcenter);
+  const datastore = (inventory.datastores || []).find((item) => item.datastore === datastoreRef);
+  if (!datastore) {
+    throw new Error("Datastore da ISO nao foi encontrado no vCenter. Recarregue o inventario.");
+  }
+
+  const pathInDatastore = normalizeDatastorePath(folderPath);
+  const datastorePath = pathInDatastore ? `[${datastore.name}] ${pathInDatastore}` : `[${datastore.name}]`;
+  const soap = await openSoapSession(vcenter);
+  const browser = await getSoapDatastoreBrowser(vcenter, soap, datastoreRef);
+  if (!browser) {
+    throw new Error("Nao consegui localizar o datastore browser deste datastore no vCenter.");
+  }
+
+  const search = await soapRequest(vcenter, soapSearchDatastore(browser, datastorePath), soap.cookie);
+  const taskId = parseTaskRef(search.body);
+  if (!taskId) throw new Error("vCenter iniciou SearchDatastore_Task, mas nao retornou task id.");
+
+  const resultXml = await waitSoapTaskResultXml(vcenter, soap, taskId, "SearchDatastore_Task");
+  const entries = parseDatastoreSearchEntries(resultXml, pathInDatastore);
+
+  return {
+    datastoreId: datastoreRef,
+    datastoreName: datastore.name,
+    path: pathInDatastore,
+    datastorePath,
+    parentPath: parentDatastorePath(pathInDatastore),
+    entries
+  };
 }
 
 async function vcenterVmNameExists(vcenter, session, name) {
@@ -990,6 +1034,16 @@ async function getSoapCloneRefs(vcenter, soap, { templateId, clusterId, hostId }
   return { templateParent, resourcePool };
 }
 
+async function getSoapDatastoreBrowser(vcenter, soap, datastoreId) {
+  const response = await soapRequest(vcenter, soapRetrieveObjectProperties(
+    soap.propertyCollector,
+    "Datastore",
+    datastoreId,
+    ["browser"]
+  ), soap.cookie);
+  return parseSoapMorProperty(response.body, "browser");
+}
+
 async function configureAndPowerOnVmSoap(vcenter, vmId, hardware = {}) {
   const soap = await openSoapSession(vcenter);
   const vmConfig = await getSoapVmConfig(vcenter, soap, vmId);
@@ -1222,6 +1276,22 @@ function soapRetrieveObjectProperties(propertyCollector, type, value, paths) {
     </RetrievePropertiesEx>`);
 }
 
+function soapSearchDatastore(browser, datastorePath) {
+  return soapEnvelope(`
+    <SearchDatastore_Task xmlns="urn:vim25">
+      <_this type="HostDatastoreBrowser">${escapeXml(browser)}</_this>
+      <datastorePath>${escapeXml(datastorePath)}</datastorePath>
+      <searchSpec>
+        <details>
+          <fileType>true</fileType>
+          <fileSize>true</fileSize>
+          <modification>true</modification>
+          <fileOwner>false</fileOwner>
+        </details>
+      </searchSpec>
+    </SearchDatastore_Task>`);
+}
+
 function soapCloneVm({ templateId, folder, name, resourcePool, host, datastore }) {
   return soapEnvelope(`
     <CloneVM_Task xmlns="urn:vim25">
@@ -1400,6 +1470,23 @@ async function waitSoapTask(vcenter, soap, taskId, operation = "Task") {
   throw new Error(`Timeout aguardando ${operation} finalizar no vCenter.`);
 }
 
+async function waitSoapTaskResultXml(vcenter, soap, taskId, operation = "Task") {
+  const started = Date.now();
+  while (Date.now() - started < 20 * 60 * 1000) {
+    const response = await soapRequest(vcenter, soapRetrieveTaskInfo(soap.propertyCollector, taskId), soap.cookie);
+    const state = parseSoapPropertyText(response.body, "info.state");
+    if (state === "success") {
+      return findSoapPropSet(response.body, "info.result") || response.body;
+    }
+    if (state === "error") {
+      const message = parseSoapFaultMessage(response.body) || parseSoapPropertyText(response.body, "info.error") || `${operation} falhou no vCenter.`;
+      throw new Error(`vCenter ${operation} falhou: ${message}`);
+    }
+    await delay(1000);
+  }
+  throw new Error(`Timeout aguardando ${operation} finalizar no vCenter.`);
+}
+
 function parseSoapPropertyText(xml, propertyName) {
   const prop = findSoapPropSet(xml, propertyName);
   if (!prop) return null;
@@ -1473,6 +1560,62 @@ function parseSoapVmNames(xml) {
       template: props["config.template"] === "true"
     };
   }).filter(Boolean);
+}
+
+function parseDatastoreSearchEntries(xml, currentPath = "") {
+  const files = String(xml).match(/<file\b[\s\S]*?<\/file>/gi) || [];
+  const entries = files.map((fileXml) => {
+    const rawName = decodeXmlText(parseSoapText(fileXml, "path") || "");
+    const name = rawName.replace(/^\/+|\/+$/g, "");
+    if (!name || name === "." || name === "..") return null;
+
+    const typeMatch = fileXml.match(/(?:xsi:type|type)=["']([^"']+)["']/i);
+    const soapType = typeMatch?.[1] || "";
+    const isFolder = /FolderFileInfo/i.test(soapType);
+    const isIso = /IsoImageFileInfo/i.test(soapType) || /\.iso$/i.test(name);
+    if (!isFolder && !isIso) return null;
+
+    return {
+      name,
+      path: joinDatastorePath(currentPath, name),
+      type: isFolder ? "folder" : "iso",
+      size: Number(parseSoapText(fileXml, "fileSize") || 0),
+      modifiedAt: parseSoapText(fileXml, "modification") || null
+    };
+  }).filter(Boolean);
+
+  return entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name, "pt-BR", { numeric: true });
+  });
+}
+
+function normalizeDatastorePath(value) {
+  const clean = String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\[[^\]]+\]\s*/, "")
+    .trim();
+  const parts = [];
+  for (const part of clean.split("/")) {
+    const item = part.trim();
+    if (!item || item === ".") continue;
+    if (item === "..") {
+      parts.pop();
+      continue;
+    }
+    parts.push(item);
+  }
+  return parts.join("/");
+}
+
+function joinDatastorePath(base, name) {
+  return [normalizeDatastorePath(base), normalizeDatastorePath(name)].filter(Boolean).join("/");
+}
+
+function parentDatastorePath(value) {
+  const parts = normalizeDatastorePath(value).split("/").filter(Boolean);
+  parts.pop();
+  return parts.join("/");
 }
 
 function parseSoapDisks(objectXml) {
@@ -2152,6 +2295,15 @@ function cleanHtml(html) {
     .replace(/&quot;/g, '"')
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function decodeXmlText(value) {
+  return String(value ?? "")
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
 }
 
 function escapeXml(value) {

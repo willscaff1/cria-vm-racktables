@@ -53,11 +53,19 @@
                 Datastore da ISO
                 <select name="isoDatastoreId" id="iso-datastore-id"></select>
               </label>
-              <label class="iso-only hidden span-2">
-                Caminho da ISO no datastore
-                <input name="isoFilePath" id="iso-file-path" placeholder="ISOS/Windows_Server_2022.iso">
+              <div class="iso-only hidden iso-browser span-3">
+                <input type="hidden" name="isoFilePath" id="iso-file-path">
+                <div class="iso-browser-head">
+                  <strong>Pastas da LUN</strong>
+                  <div class="iso-browser-actions">
+                    <button type="button" id="iso-up" class="mini-button">Subir</button>
+                    <button type="button" id="iso-refresh" class="mini-button">Atualizar</button>
+                  </div>
+                </div>
+                <div id="iso-current-path" class="field-status"></div>
+                <div id="iso-browser-list" class="iso-browser-list"></div>
                 <span id="iso-path-preview" class="field-status"></span>
-              </label>
+              </div>
             </fieldset>
 
             <fieldset class="form-section section-resources">
