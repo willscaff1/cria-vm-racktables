@@ -83,12 +83,14 @@ async function loadRackTablesConfig() {
   try {
     state.racktablesConfigs = await api("/api/racktables/config");
     fillSelect($("#create-racktables"), state.racktablesConfigs, "id", rackTablesLabel, "Selecione...");
+    renderRackTablesConfigs();
     const count = state.racktablesConfigs.length;
     $("#racktables-select-status").textContent = count === 1 ? "1 RackTables cadastrado" : `${count} RackTables cadastrados`;
     setStatus("#integration-status", count ? `${count} RackTables cadastrado(s).` : "RackTables ainda nao configurado.", "");
   } catch {
     state.racktablesConfigs = [];
     fillSelect($("#create-racktables"), [], "id", "name", "Selecione...");
+    renderRackTablesConfigs();
     setStatus("#integration-status", "RackTables ainda nao configurado.", "");
   }
 }
@@ -508,6 +510,40 @@ function renderVcenters() {
   });
 }
 
+function renderRackTablesConfigs() {
+  const container = $("#racktables-list");
+  if (!container) return;
+  if (!state.racktablesConfigs.length) {
+    container.innerHTML = `<div class="row">Nenhum RackTables cadastrado.</div>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="row header">
+      <span>Nome</span><span>URL</span><span>Usuario</span><span>Acoes</span>
+    </div>
+    ${state.racktablesConfigs.map((config) => `
+      <div class="row">
+        <span>${escapeHtml(config.name)}</span>
+        <span>${escapeHtml(config.baseUrl)}</span>
+        <span>${escapeHtml(config.username || "")}</span>
+        <span class="row-actions">
+          <span class="pill ${config.lastTest?.ok ? "ok" : config.lastTest ? "error" : ""}">${config.lastTest?.ok ? "OK" : config.lastTest ? "Erro" : "Sem teste"}</span>
+          <button type="button" class="mini-button" data-action="test-racktables" data-id="${config.id}">Testar</button>
+          <button type="button" class="mini-button danger" data-action="delete-racktables" data-id="${config.id}">Remover</button>
+        </span>
+      </div>
+    `).join("")}
+  `;
+
+  container.querySelectorAll("[data-action='test-racktables']").forEach((button) => {
+    button.addEventListener("click", () => retestSavedRackTables(button.dataset.id));
+  });
+  container.querySelectorAll("[data-action='delete-racktables']").forEach((button) => {
+    button.addEventListener("click", () => deleteSavedRackTables(button.dataset.id));
+  });
+}
+
 async function retestSavedVcenter(id) {
   setStatus("#vcenter-status", "Testando vCenter cadastrado...", "");
   try {
@@ -531,6 +567,33 @@ async function deleteSavedVcenter(id) {
     setStatus("#vcenter-status", "vCenter removido.", "ok");
   } catch (error) {
     setStatus("#vcenter-status", error.message, "error");
+  }
+}
+
+async function retestSavedRackTables(id) {
+  setStatus("#integration-status", "Testando RackTables cadastrado...", "");
+  try {
+    const result = await api(`/api/racktables/${id}/test`, { method: "POST", body: {} });
+    await loadRackTablesConfig();
+    setStatus("#integration-status", result.message || "RackTables OK.", "ok");
+  } catch (error) {
+    await loadRackTablesConfig();
+    setStatus("#integration-status", error.message, "error");
+  }
+}
+
+async function deleteSavedRackTables(id) {
+  const config = state.racktablesConfigs.find((item) => item.id === id);
+  if (!window.confirm(`Remover RackTables ${config?.name || id}?`)) return;
+
+  setStatus("#integration-status", "Removendo RackTables...", "");
+  try {
+    await api(`/api/racktables/${id}`, { method: "DELETE", body: {} });
+    await loadRackTablesConfig();
+    await loadRackTablesData();
+    setStatus("#integration-status", "RackTables removido.", "ok");
+  } catch (error) {
+    setStatus("#integration-status", error.message, "error");
   }
 }
 

@@ -117,6 +117,35 @@ async function routeApi(req, res, url) {
     return;
   }
 
+  const rackTablesTestMatch = url.pathname.match(/^\/api\/racktables\/([^/]+)\/test$/);
+  if (req.method === "POST" && rackTablesTestMatch) {
+    const configs = await getRackTablesStoredConfigs();
+    const config = configs.find((item) => item.id === rackTablesTestMatch[1]);
+    if (!config) {
+      sendJson(res, 404, { error: "RackTables nao encontrado" });
+      return;
+    }
+    const test = await testRackTables(config);
+    config.lastTest = { ...test, testedAt: new Date().toISOString() };
+    config.updatedAt = new Date().toISOString();
+    await saveJson("racktables.json", configs);
+    sendJson(res, test.ok ? 200 : 400, { ...test, racktables: maskRackTablesConfig(config) });
+    return;
+  }
+
+  const rackTablesDeleteMatch = url.pathname.match(/^\/api\/racktables\/([^/]+)$/);
+  if (req.method === "DELETE" && rackTablesDeleteMatch) {
+    const configs = await getRackTablesStoredConfigs();
+    const next = configs.filter((item) => item.id !== rackTablesDeleteMatch[1]);
+    if (next.length === configs.length) {
+      sendJson(res, 404, { error: "RackTables nao encontrado" });
+      return;
+    }
+    await saveJson("racktables.json", next);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/racktables/options") {
     const options = await getRackTablesOptions(url.searchParams.get("racktablesId"));
     sendJson(res, 200, options);
