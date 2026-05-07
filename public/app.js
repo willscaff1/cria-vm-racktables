@@ -57,7 +57,7 @@ function setupForms() {
   $("#racktables-form").addEventListener("submit", saveRackTables);
   $("#test-racktables").addEventListener("click", testRackTables);
   $("#create-vcenter").addEventListener("change", loadInventory);
-  $("#folder-id").addEventListener("change", updateFolderStatus);
+  $("#folder-root-id").addEventListener("change", () => handleFolderSelection(0, $("#folder-root-id").value));
   $("#create-racktables").addEventListener("change", loadRackTablesData);
   $("#racktables-network").addEventListener("change", loadFreeIps);
   $("#tag-picker").addEventListener("change", addSelectedTag);
@@ -199,7 +199,7 @@ async function loadInventory() {
     fillSelect($("#iso-datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
     fillSelect($("#network-id"), state.inventory.networks, "network", "name", "Selecione...");
     fillSelect($("#template-id"), state.inventory.templates, "id", templateLabel, "Selecione...");
-    fillSelect($("#folder-id"), state.inventory.folders || [], "folder", folderLabel, "Pasta raiz de VMs");
+    renderFolderSelector();
     updateTemplateStatus(state.inventory.templates);
     applySelectedTemplateDetails();
     applySuggestions();
@@ -213,9 +213,11 @@ async function loadInventory() {
 }
 
 function clearInventory() {
-  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id", "#folder-id"].forEach((selector) => {
+  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id", "#folder-root-id"].forEach((selector) => {
     fillSelect($(selector), [], "id", "name", "Selecione...");
   });
+  $("#folder-id").value = "";
+  $("#folder-child-selects").innerHTML = "";
   $("#folder-status").textContent = "";
   state.isoBrowser = { path: "", entries: [], loading: false };
   $("#iso-file-path").value = "";
@@ -311,7 +313,6 @@ function applySuggestions() {
   if (suggestions.host?.host) $("#host-id").value = suggestions.host.host;
   if (suggestions.datastore?.datastore) $("#datastore-id").value = suggestions.datastore.datastore;
   if (suggestions.datastore?.datastore) $("#iso-datastore-id").value = suggestions.datastore.datastore;
-  if (suggestions.folder?.folder) $("#folder-id").value = suggestions.folder.folder;
   state.isoBrowser = { path: "", entries: [], loading: false };
   $("#iso-file-path").value = "";
   renderIsoBrowser();
@@ -446,7 +447,7 @@ async function provisionVm(event) {
       datastoreId: data.datastoreId,
       datastoreName: selectedText("#datastore-id"),
       folderId: data.folderId,
-      folderName: data.folderId ? selectedText("#folder-id") : "",
+      folderName: getSelectedFolder()?.path || "",
       networkId: data.networkId,
       networkName: selectedText("#network-id")
     },
@@ -1099,15 +1100,62 @@ function datastoreLabel(item) {
   return `${item.name} (${free})`;
 }
 
+function renderFolderSelector() {
+  const folders = state.inventory?.folders || [];
+  const rootIds = new Set(folders.filter((item) => item.isRoot).map((item) => item.folder));
+  const mainFolders = folders.filter((item) => rootIds.has(item.parent));
+  const options = mainFolders.length ? mainFolders : folders.filter((item) => item.isRoot);
+  fillSelect($("#folder-root-id"), options, "folder", folderLabel, "Pasta raiz de VMs");
+  $("#folder-id").value = "";
+  $("#folder-child-selects").innerHTML = "";
+  updateFolderStatus();
+}
+
 function folderLabel(item) {
-  const depth = Math.max(Number(item.depth || 0), 0);
-  const prefix = depth ? `${"--".repeat(depth)} ` : "";
-  return `${prefix}${item.name || item.folder}`;
+  return item.name || item.folder;
+}
+
+function handleFolderSelection(level, folderId) {
+  removeFolderLevelsAfter(level);
+  $("#folder-id").value = folderId || getFolderSelectionAtLevel(level - 1) || "";
+  if (folderId) renderFolderChildSelect(level + 1, folderId);
+  updateFolderStatus();
+}
+
+function renderFolderChildSelect(level, parentId) {
+  const children = (state.inventory?.folders || [])
+    .filter((item) => item.parent === parentId)
+    .sort((a, b) => folderLabel(a).localeCompare(folderLabel(b), "pt-BR", { numeric: true }));
+  if (!children.length) return;
+
+  const parent = (state.inventory?.folders || []).find((item) => item.folder === parentId);
+  const select = document.createElement("select");
+  select.dataset.folderLevel = String(level);
+  fillSelect(select, children, "folder", folderLabel, `Subpasta de ${folderLabel(parent || {})}`);
+  select.addEventListener("change", () => handleFolderSelection(level, select.value));
+  $("#folder-child-selects").appendChild(select);
+}
+
+function removeFolderLevelsAfter(level) {
+  $$("#folder-child-selects select").forEach((select) => {
+    if (Number(select.dataset.folderLevel || 0) > level) select.remove();
+  });
+}
+
+function getFolderSelectionAtLevel(level) {
+  if (level < 0) return "";
+  if (level === 0) return $("#folder-root-id").value;
+  return $(`#folder-child-selects select[data-folder-level="${level}"]`)?.value || "";
+}
+
+function getSelectedFolder() {
+  const selectedId = $("#folder-id").value;
+  return (state.inventory?.folders || []).find((item) => item.folder === selectedId) || null;
 }
 
 function updateFolderStatus() {
   const folders = state.inventory?.folders || [];
-  const selected = folders.find((item) => item.folder === $("#folder-id").value);
+  const selected = getSelectedFolder();
   if (selected) {
     $("#folder-status").textContent = selected.path;
     return;

@@ -259,6 +259,11 @@ button.secondary:hover {
   min-height: 16px;
 }
 
+.folder-child-selects {
+  display: grid;
+  gap: 6px;
+}
+
 .status.ok {
   color: var(--ok);
 }
