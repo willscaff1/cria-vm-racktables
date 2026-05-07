@@ -524,6 +524,11 @@ async function createVcenterVm(vcenter, payload) {
   if (payload.deployMode === "iso") {
     const isoPath = requiredText(payload.isoPath, "ISO da VM zerada");
     validateIsoPath(isoPath);
+    const folderId = payload.placement.folderId || await getDefaultVmFolder(vcenter, session);
+    const resourcePoolId = payload.placement.resourcePoolId || await getDefaultResourcePool(vcenter, {
+      clusterId: payload.placement.clusterId,
+      hostId: payload.placement.hostId
+    });
     const body = {
       name: payload.vm.label,
       guest_OS: payload.vm.guestOs || "OTHER_64",
@@ -531,8 +536,8 @@ async function createVcenterVm(vcenter, payload) {
         cluster: payload.placement.clusterId,
         host: payload.placement.hostId,
         datastore: payload.placement.datastoreId,
-        folder: payload.placement.folderId,
-        resource_pool: payload.placement.resourcePoolId
+        folder: folderId,
+        resource_pool: resourcePoolId
       }),
       cpu: { count: Number(payload.vm.cpu || 2) },
       memory: { size_MiB: Number(payload.vm.memoryGb || 4) * 1024 }
@@ -545,6 +550,8 @@ async function createVcenterVm(vcenter, payload) {
       mode: "iso",
       vmId,
       isoPath,
+      folderId,
+      resourcePoolId,
       cdrom,
       raw: result
     };
@@ -586,6 +593,65 @@ async function attachIsoCdromToVm(vcenter, session, vmId, isoPath) {
   }
 
   return await vcenterJson(vcenter, session, "POST", `/rest/vcenter/vm/${encodeURIComponent(vmId)}/hardware/cdrom`, { spec });
+}
+
+async function getDefaultVmFolder(vcenter, session) {
+  const datacenters = await vcenterJson(vcenter, session, "GET", "/rest/vcenter/datacenter");
+  const datacenter = Array.isArray(datacenters) ? datacenters[0] : null;
+  const datacenterId = datacenter?.datacenter;
+  if (!datacenterId) {
+    throw new Error("Nao consegui identificar o datacenter para definir a pasta da VM.");
+  }
+
+  const soap = await openSoapSession(vcenter);
+  const response = await soapRequest(vcenter, soapRetrieveObjectProperties(
+    soap.propertyCollector,
+    "Datacenter",
+    datacenterId,
+    ["vmFolder"]
+  ), soap.cookie);
+  const folderId = parseSoapMorProperty(response.body, "vmFolder");
+  if (!folderId) {
+    throw new Error(`Nao consegui identificar a pasta de VMs do datacenter ${datacenter.name || datacenterId}.`);
+  }
+  return folderId;
+}
+
+async function getDefaultResourcePool(vcenter, { clusterId, hostId }) {
+  const soap = await openSoapSession(vcenter);
+
+  if (clusterId) {
+    const clusterResponse = await soapRequest(vcenter, soapRetrieveObjectProperties(
+      soap.propertyCollector,
+      "ClusterComputeResource",
+      clusterId,
+      ["resourcePool"]
+    ), soap.cookie);
+    const resourcePool = parseSoapMorProperty(clusterResponse.body, "resourcePool");
+    if (resourcePool) return resourcePool;
+  }
+
+  if (hostId) {
+    const hostResponse = await soapRequest(vcenter, soapRetrieveObjectProperties(
+      soap.propertyCollector,
+      "HostSystem",
+      hostId,
+      ["parent"]
+    ), soap.cookie);
+    const parentCompute = parseSoapMorProperty(hostResponse.body, "parent");
+    if (parentCompute) {
+      const computeResponse = await soapRequest(vcenter, soapRetrieveObjectProperties(
+        soap.propertyCollector,
+        "ComputeResource",
+        parentCompute,
+        ["resourcePool"]
+      ), soap.cookie);
+      const resourcePool = parseSoapMorProperty(computeResponse.body, "resourcePool");
+      if (resourcePool) return resourcePool;
+    }
+  }
+
+  throw new Error("Nao consegui identificar o resource pool do cluster/host selecionado.");
 }
 
 async function browseVcenterDatastore(vcenter, { datastoreId, folderPath, recursive = false }) {
