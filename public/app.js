@@ -57,6 +57,7 @@ function setupForms() {
   $("#racktables-form").addEventListener("submit", saveRackTables);
   $("#test-racktables").addEventListener("click", testRackTables);
   $("#create-vcenter").addEventListener("change", loadInventory);
+  $("#folder-id").addEventListener("change", updateFolderStatus);
   $("#create-racktables").addEventListener("change", loadRackTablesData);
   $("#racktables-network").addEventListener("change", loadFreeIps);
   $("#tag-picker").addEventListener("change", addSelectedTag);
@@ -199,10 +200,10 @@ async function loadInventory() {
     fillSelect($("#network-id"), state.inventory.networks, "network", "name", "Selecione...");
     fillSelect($("#template-id"), state.inventory.templates, "id", templateLabel, "Selecione...");
     fillSelect($("#folder-id"), state.inventory.folders || [], "folder", folderLabel, "Pasta raiz de VMs");
-    $("#folder-status").textContent = `${(state.inventory.folders || []).length} pasta(s) carregada(s)`;
     updateTemplateStatus(state.inventory.templates);
     applySelectedTemplateDetails();
     applySuggestions();
+    updateFolderStatus();
     setStatus("#create-status", "Inventario carregado.", "ok");
   } catch (error) {
     clearInventory();
@@ -1099,7 +1100,21 @@ function datastoreLabel(item) {
 }
 
 function folderLabel(item) {
-  return item.path || item.name || item.folder;
+  const depth = Math.max(Number(item.depth || 0), 0);
+  const prefix = depth ? `${"--".repeat(depth)} ` : "";
+  return `${prefix}${item.name || item.folder}`;
+}
+
+function updateFolderStatus() {
+  const folders = state.inventory?.folders || [];
+  const selected = folders.find((item) => item.folder === $("#folder-id").value);
+  if (selected) {
+    $("#folder-status").textContent = selected.path;
+    return;
+  }
+  $("#folder-status").textContent = folders.length
+    ? `${folders.length} pasta(s) carregada(s). Sem selecao usa a pasta raiz de VMs.`
+    : "";
 }
 
 function templateLabel(item) {
