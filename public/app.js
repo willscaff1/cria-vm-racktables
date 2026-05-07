@@ -767,16 +767,22 @@ function renderIsoBrowser() {
   }
 
   const selectedPath = $("#iso-file-path").value;
-  list.innerHTML = entries.map((entry) => `
-    <button type="button" class="iso-entry file ${entry.path === selectedPath ? "selected" : ""}" data-path="${escapeHtml(entry.path)}">
-      <span class="iso-badge">ISO</span>
-      <span class="iso-entry-text">
-        <strong>${escapeHtml(entry.name)}</strong>
-        <small>${escapeHtml(entry.path)}</small>
-      </span>
-      ${entry.size ? `<span class="iso-size">${bytes(entry.size)}</span>` : ""}
-    </button>
-  `).join("");
+  list.innerHTML = entries.map((entry) => {
+    const os = detectIsoOs(entry);
+    return `
+      <button type="button" class="iso-entry file ${entry.path === selectedPath ? "selected" : ""}" data-path="${escapeHtml(entry.path)}">
+        <span class="iso-badge">ISO</span>
+        <span class="iso-entry-text">
+          <strong>${escapeHtml(entry.name)}</strong>
+          <small>${escapeHtml(entry.path)}</small>
+        </span>
+        <span class="iso-entry-meta">
+          <span class="iso-os ${os.confident ? "detected" : ""}">${escapeHtml(os.label)}</span>
+          ${entry.size ? `<span class="iso-size">${bytes(entry.size)}</span>` : ""}
+        </span>
+      </button>
+    `;
+  }).join("");
 
   list.querySelectorAll(".iso-entry").forEach((button) => {
     button.addEventListener("click", () => {
@@ -791,6 +797,51 @@ function selectedIsoDatastoreName() {
   const datastoreId = $("#iso-datastore-id")?.value;
   const datastore = state.inventory?.datastores?.find((item) => item.datastore === datastoreId);
   return datastore?.name || "";
+}
+
+function detectIsoOs(entry) {
+  const text = `${entry?.name || ""} ${entry?.path || ""}`.toLowerCase();
+  const normalized = text.replace(/[_\-.]+/g, " ");
+  const rules = [
+    [/windows.*server.*2025|server.*2025|win.*2025/, "Windows Server 2025"],
+    [/windows.*server.*2022|server.*2022|win.*2022/, "Windows Server 2022"],
+    [/windows.*server.*2019|server.*2019|win.*2019/, "Windows Server 2019"],
+    [/windows.*server.*2016|server.*2016|win.*2016/, "Windows Server 2016"],
+    [/windows.*server.*2012|server.*2012|win.*2012/, "Windows Server 2012"],
+    [/windows.*11|win.*11/, "Windows 11"],
+    [/windows.*10|win.*10/, "Windows 10"],
+    [/ubuntu.*24|ubuntu.*noble/, "Ubuntu 24.04"],
+    [/ubuntu.*22|ubuntu.*jammy/, "Ubuntu 22.04"],
+    [/ubuntu.*20|ubuntu.*focal/, "Ubuntu 20.04"],
+    [/ubuntu/, "Ubuntu"],
+    [/debian.*12|bookworm/, "Debian 12"],
+    [/debian.*11|bullseye/, "Debian 11"],
+    [/debian/, "Debian"],
+    [/rocky.*9|rockylinux.*9/, "Rocky Linux 9"],
+    [/rocky.*8|rockylinux.*8/, "Rocky Linux 8"],
+    [/rocky|rockylinux/, "Rocky Linux"],
+    [/alma.*9|almalinux.*9/, "AlmaLinux 9"],
+    [/alma.*8|almalinux.*8/, "AlmaLinux 8"],
+    [/alma|almalinux/, "AlmaLinux"],
+    [/rhel.*9|red.*hat.*9/, "Red Hat Enterprise Linux 9"],
+    [/rhel.*8|red.*hat.*8/, "Red Hat Enterprise Linux 8"],
+    [/rhel|red.*hat/, "Red Hat Enterprise Linux"],
+    [/centos.*stream.*9/, "CentOS Stream 9"],
+    [/centos.*stream.*8/, "CentOS Stream 8"],
+    [/centos/, "CentOS"],
+    [/oracle.*linux|ol[789]\b/, "Oracle Linux"],
+    [/sles.*15|suse.*15/, "SUSE Linux Enterprise 15"],
+    [/sles|suse/, "SUSE Linux"],
+    [/vmware.*esxi|esxi/, "VMware ESXi"],
+    [/proxmox/, "Proxmox VE"],
+    [/freebsd/, "FreeBSD"],
+    [/fedora/, "Fedora"]
+  ];
+
+  for (const [pattern, label] of rules) {
+    if (pattern.test(normalized)) return { label, confident: true };
+  }
+  return { label: "SO nao identificado", confident: false };
 }
 
 function applySelectedTemplateDetails() {

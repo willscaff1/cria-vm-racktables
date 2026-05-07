@@ -542,7 +542,7 @@ button.secondary:hover {
 
 .iso-entry {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr) minmax(150px, auto);
   align-items: start;
   gap: 10px;
   min-height: 52px;
@@ -557,7 +557,8 @@ button.secondary:hover {
 
 .iso-badge,
 .iso-size,
-.iso-entry-text small {
+.iso-entry-text small,
+.iso-os {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
@@ -574,6 +575,30 @@ button.secondary:hover {
 
 .iso-size {
   white-space: nowrap;
+}
+
+.iso-entry-meta {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.iso-os {
+  display: inline-block;
+  max-width: 220px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--surface-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iso-os.detected {
+  background: #dff3e8;
+  color: var(--ok);
 }
 
 .iso-entry-text {
@@ -729,5 +754,14 @@ button.secondary:hover {
 
   .confirm-summary div {
     grid-template-columns: 1fr;
+  }
+
+  .iso-entry {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .iso-entry-meta {
+    grid-column: 2;
+    align-items: flex-start;
   }
 }
