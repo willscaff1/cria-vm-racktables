@@ -198,6 +198,8 @@ async function loadInventory() {
     fillSelect($("#iso-datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
     fillSelect($("#network-id"), state.inventory.networks, "network", "name", "Selecione...");
     fillSelect($("#template-id"), state.inventory.templates, "id", templateLabel, "Selecione...");
+    fillSelect($("#folder-id"), state.inventory.folders || [], "folder", folderLabel, "Pasta raiz de VMs");
+    $("#folder-status").textContent = `${(state.inventory.folders || []).length} pasta(s) carregada(s)`;
     updateTemplateStatus(state.inventory.templates);
     applySelectedTemplateDetails();
     applySuggestions();
@@ -210,9 +212,10 @@ async function loadInventory() {
 }
 
 function clearInventory() {
-  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id"].forEach((selector) => {
+  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id", "#folder-id"].forEach((selector) => {
     fillSelect($(selector), [], "id", "name", "Selecione...");
   });
+  $("#folder-status").textContent = "";
   state.isoBrowser = { path: "", entries: [], loading: false };
   $("#iso-file-path").value = "";
   renderIsoBrowser();
@@ -307,6 +310,7 @@ function applySuggestions() {
   if (suggestions.host?.host) $("#host-id").value = suggestions.host.host;
   if (suggestions.datastore?.datastore) $("#datastore-id").value = suggestions.datastore.datastore;
   if (suggestions.datastore?.datastore) $("#iso-datastore-id").value = suggestions.datastore.datastore;
+  if (suggestions.folder?.folder) $("#folder-id").value = suggestions.folder.folder;
   state.isoBrowser = { path: "", entries: [], loading: false };
   $("#iso-file-path").value = "";
   renderIsoBrowser();
@@ -440,6 +444,8 @@ async function provisionVm(event) {
       hostName: selectedText("#host-id"),
       datastoreId: data.datastoreId,
       datastoreName: selectedText("#datastore-id"),
+      folderId: data.folderId,
+      folderName: data.folderId ? selectedText("#folder-id") : "",
       networkId: data.networkId,
       networkName: selectedText("#network-id")
     },
@@ -516,6 +522,7 @@ function renderJobDetails(job) {
     ["Cluster", job.request?.placement?.clusterName],
     ["Host", job.request?.placement?.hostName],
     ["Datastore", job.request?.placement?.datastoreName],
+    ["Pasta vCenter", job.request?.placement?.folderName],
     ["CPU", job.request?.vm?.cpu],
     ["Memoria GB", job.request?.vm?.memoryGb],
     ["Disco total GB", job.request?.vm?.diskGb],
@@ -1089,6 +1096,10 @@ function fillSelect(select, items, valueKey, labelKey, placeholder = null) {
 function datastoreLabel(item) {
   const free = item.free_space ? bytes(item.free_space) : "livre n/d";
   return `${item.name} (${free})`;
+}
+
+function folderLabel(item) {
+  return item.path || item.name || item.folder;
 }
 
 function templateLabel(item) {

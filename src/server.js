@@ -877,6 +877,7 @@ function buildRackTablesComment(payload, vmResult, job) {
     `Cluster: ${payload.placement.clusterName || payload.placement.clusterId || ""}`,
     `Host: ${payload.placement.hostName || payload.placement.hostId || ""}`,
     `Datastore: ${payload.placement.datastoreName || payload.placement.datastoreId || ""}`,
+    `Pasta vCenter: ${payload.placement.folderName || payload.placement.folderId || ""}`,
     `Rede: ${payload.placement.networkName || payload.placement.networkId || ""}`,
     `Modo de criacao: ${payload.deployMode === "template" ? "Template" : "VM zerada com ISO"}`,
     `Template: ${payload.templateName || payload.templateId || ""}`,
@@ -945,6 +946,7 @@ async function getVcenterInventory(vcenter) {
     hosts: valueOrEmpty(hosts),
     datastores: valueOrEmpty(datastores),
     networks: valueOrEmpty(networks),
+    folders: [],
     templates: uniqueBy([
       ...valueOrEmpty(contentTemplates),
       ...valueOrEmpty(inventoryTemplates)
@@ -961,6 +963,12 @@ async function getVcenterInventory(vcenter) {
     .sort((a, b) => Number(b.free_space || 0) - Number(a.free_space || 0))[0] || null;
   inventory.suggestions.host = inventory.hosts.find((item) => item.connection_state === "CONNECTED") || inventory.hosts[0] || null;
   inventory.suggestions.cluster = inventory.clusters[0] || null;
+  try {
+    inventory.folders = await getInventoryFolders(vcenter, inventory.datacenters);
+    inventory.suggestions.folder = inventory.folders[0] || null;
+  } catch (error) {
+    inventory.folderDiagnostics = { ok: false, error: error.message || "Falha ao carregar pastas" };
+  }
 
   return inventory;
 }
@@ -1025,6 +1033,51 @@ async function getInventoryTemplates(vcenter) {
   }
 
   return uniqueBy(templates, "id");
+}
+
+async function getInventoryFolders(vcenter, datacenters = []) {
+  const soap = await openSoapSession(vcenter);
+  const folderRoots = new Map();
+
+  for (const datacenter of datacenters || []) {
+    const datacenterId = datacenter.datacenter || datacenter.id;
+    if (!datacenterId) continue;
+    const response = await soapRequest(vcenter, soapRetrieveObjectProperties(
+      soap.propertyCollector,
+      "Datacenter",
+      datacenterId,
+      ["vmFolder"]
+    ), soap.cookie);
+    const folderId = parseSoapMorProperty(response.body, "vmFolder");
+    if (folderId) {
+      folderRoots.set(folderId, datacenter.name || datacenterId);
+    }
+  }
+
+  const folders = [];
+  let response = await soapRequest(vcenter, soapRetrieveVmFolders(soap.propertyCollector, soap.rootFolder), soap.cookie);
+  folders.push(...parseSoapFolders(response.body));
+
+  let token = parseSoapText(response.body, "token");
+  while (token) {
+    response = await soapRequest(vcenter, soapContinueRetrieve(soap.propertyCollector, token), soap.cookie);
+    folders.push(...parseSoapFolders(response.body));
+    token = parseSoapText(response.body, "token");
+  }
+
+  const byId = new Map(uniqueBy(folders, "folder").map((folder) => [folder.folder, folder]));
+  return [...byId.values()].map((folder) => {
+    const resolved = resolveVmFolderPath(folder, byId, folderRoots);
+    if (!resolved) return null;
+    return {
+      ...folder,
+      datacenter: resolved.datacenter,
+      path: resolved.path,
+      depth: resolved.depth,
+      isRoot: folderRoots.has(folder.folder)
+    };
+  }).filter(Boolean)
+    .sort((a, b) => a.path.localeCompare(b.path, "pt-BR", { numeric: true }));
 }
 
 async function soapVmNameExists(vcenter, name) {
@@ -1344,6 +1397,47 @@ function soapRetrieveVmNames(propertyCollector, rootFolder) {
             <type>VirtualApp</type>
             <path>vm</path>
             <skip>false</skip>
+          </selectSet>
+        </objectSet>
+      </specSet>
+      <options/>
+    </RetrievePropertiesEx>`);
+}
+
+function soapRetrieveVmFolders(propertyCollector, rootFolder) {
+  return soapEnvelope(`
+    <RetrievePropertiesEx xmlns="urn:vim25">
+      <_this type="PropertyCollector">${escapeXml(propertyCollector)}</_this>
+      <specSet>
+        <propSet>
+          <type>Folder</type>
+          <pathSet>name</pathSet>
+          <pathSet>parent</pathSet>
+          <pathSet>childType</pathSet>
+        </propSet>
+        <objectSet>
+          <obj type="Folder">${escapeXml(rootFolder)}</obj>
+          <skip>false</skip>
+          <selectSet xsi:type="TraversalSpec">
+            <name>visitFolders</name>
+            <type>Folder</type>
+            <path>childEntity</path>
+            <skip>false</skip>
+            <selectSet>
+              <name>visitFolders</name>
+            </selectSet>
+            <selectSet>
+              <name>dcToVmFolder</name>
+            </selectSet>
+          </selectSet>
+          <selectSet xsi:type="TraversalSpec">
+            <name>dcToVmFolder</name>
+            <type>Datacenter</type>
+            <path>vmFolder</path>
+            <skip>false</skip>
+            <selectSet>
+              <name>visitFolders</name>
+            </selectSet>
           </selectSet>
         </objectSet>
       </specSet>
@@ -1706,6 +1800,53 @@ function parseSoapVmNames(xml) {
       template: props["config.template"] === "true"
     };
   }).filter(Boolean);
+}
+
+function parseSoapFolders(xml) {
+  const objects = xml.match(/<objects\b[\s\S]*?<\/objects>/gi) || [];
+  return objects.map((objectXml) => {
+    const objMatch = objectXml.match(/<obj[^>]*type="Folder"[^>]*>([^<]+)<\/obj>/i);
+    if (!objMatch) return null;
+
+    const props = {};
+    const propSets = objectXml.match(/<propSet\b[\s\S]*?<\/propSet>/gi) || [];
+    for (const propSet of propSets) {
+      const name = parseSoapText(propSet, "name");
+      const value = parseSoapText(propSet, "val");
+      if (name) props[name] = decodeXmlText(value || "");
+    }
+
+    return {
+      folder: objMatch[1],
+      name: props.name || objMatch[1],
+      parent: props.parent || "",
+      childType: props.childType || ""
+    };
+  }).filter(Boolean);
+}
+
+function resolveVmFolderPath(folder, byId, folderRoots) {
+  const names = [];
+  let current = folder;
+  let depth = 0;
+  const seen = new Set();
+
+  while (current?.folder && !seen.has(current.folder)) {
+    seen.add(current.folder);
+    names.unshift(current.name || current.folder);
+    if (folderRoots.has(current.folder)) {
+      const datacenter = folderRoots.get(current.folder);
+      return {
+        datacenter,
+        path: `${datacenter} / ${names.join(" / ")}`,
+        depth
+      };
+    }
+    depth += 1;
+    current = byId.get(current.parent);
+  }
+
+  return null;
 }
 
 function parseDatastoreSearchEntries(xml, currentPath = "") {
