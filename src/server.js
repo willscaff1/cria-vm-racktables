@@ -508,7 +508,7 @@ async function createVcenterVm(vcenter, payload) {
     };
 
     const result = await cloneInventoryTemplate(vcenter, session, templateRef.id, body);
-    const vmId = result?.vm || result?.value || result?.id || null;
+    const vmId = extractVcenterVmId(result);
     if (vmId) {
       const postConfig = await configureAndPowerOnVmSoap(vcenter, vmId, body.hardware);
       result.postConfig = postConfig;
@@ -544,8 +544,19 @@ async function createVcenterVm(vcenter, payload) {
     };
 
     const result = await createEmptyVcenterVm(vcenter, session, body);
-    const vmId = result?.vm || result?.value || result?.id || null;
+    const vmId = extractVcenterVmId(result);
     const cdrom = vmId ? await attachIsoCdromToVm(vcenter, session, vmId, isoPath) : null;
+    const postConfig = vmId ? await configureAndPowerOnVmSoap(vcenter, vmId, {
+      cpu: payload.vm.cpu,
+      memoryGb: payload.vm.memoryGb,
+      disks: payload.vm.disks || [],
+      originalDisks: [],
+      network: payload.placement.networkId ? {
+        id: payload.placement.networkId,
+        name: payload.placement.networkName
+      } : null,
+      bootFromCdrom: true
+    }) : null;
     return {
       mode: "iso",
       vmId,
@@ -553,11 +564,17 @@ async function createVcenterVm(vcenter, payload) {
       folderId,
       resourcePoolId,
       cdrom,
+      postConfig,
       raw: result
     };
   }
 
   throw new Error("Modo de criacao invalido.");
+}
+
+function extractVcenterVmId(result) {
+  if (typeof result === "string") return result;
+  return result?.vm || result?.value || result?.id || null;
 }
 
 async function cloneInventoryTemplate(vcenter, session, templateId, spec) {
@@ -1125,6 +1142,7 @@ async function configureAndPowerOnVmSoap(vcenter, vmId, hardware = {}) {
     network: hardware.network,
     disks: hardware.disks || [],
     originalDisks: hardware.originalDisks || [],
+    bootFromCdrom: Boolean(hardware.bootFromCdrom),
     current: vmConfig
   });
 
@@ -1402,17 +1420,21 @@ function soapCloneVm({ templateId, folder, name, resourcePool, host, datastore }
     </CloneVM_Task>`);
 }
 
-function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, current }) {
+function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, bootFromCdrom, current }) {
   const cpuValue = Number(cpu || 0);
   const memoryMbValue = Number(memoryGb || 0) * 1024;
   const cpuXml = cpuValue && cpuValue !== Number(current.cpu || 0) ? `<numCPUs>${cpuValue}</numCPUs>` : "";
   const memoryXml = memoryMbValue && memoryMbValue !== Number(current.memoryMb || 0) ? `<memoryMB>${memoryMbValue}</memoryMB>` : "";
+  const bootXml = bootFromCdrom ? `
+        <bootOptions>
+          <bootOrder xsi:type="VirtualMachineBootOptionsBootableCdromDevice"/>
+        </bootOptions>` : "";
   const deviceChanges = [
     networkNeedsChange(network, current.nic) ? soapNetworkDeviceChange(network, current.nic) : "",
     soapDiskDeviceChanges(disks, originalDisks, current.disks)
   ].filter(Boolean).join("");
 
-  const hasConfig = cpuXml || memoryXml || deviceChanges;
+  const hasConfig = cpuXml || memoryXml || bootXml || deviceChanges;
   if (!hasConfig) return null;
 
   return soapEnvelope(`
@@ -1421,6 +1443,7 @@ function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, cu
       <spec>
         ${cpuXml}
         ${memoryXml}
+        ${bootXml}
         ${deviceChanges}
       </spec>
     </ReconfigVM_Task>`);
@@ -1434,12 +1457,13 @@ function soapPowerOnVm(vmId) {
 }
 
 function soapNetworkDeviceChange(network, nic) {
-  if (!nic?.key) return "";
+  const operation = nic?.key ? "edit" : "add";
+  const key = nic?.key || "-51";
   return `
     <deviceChange>
-      <operation>edit</operation>
-      <device xsi:type="${escapeXml(nic.type || "VirtualVmxnet3")}">
-        <key>${escapeXml(nic.key)}</key>
+      <operation>${operation}</operation>
+      <device xsi:type="${escapeXml(nic?.type || "VirtualVmxnet3")}">
+        <key>${escapeXml(key)}</key>
         <backing xsi:type="VirtualEthernetCardNetworkBackingInfo">
           <deviceName>${escapeXml(network.name || "")}</deviceName>
           <network type="Network">${escapeXml(network.id || "")}</network>
@@ -1449,13 +1473,14 @@ function soapNetworkDeviceChange(network, nic) {
           <allowGuestControl>true</allowGuestControl>
           <connected>false</connected>
         </connectable>
+        ${nic?.key ? "" : "<addressType>generated</addressType>"}
       </device>
     </deviceChange>`;
 }
 
 function networkNeedsChange(network, nic) {
   if (!network?.id && !network?.name) return false;
-  if (!nic?.key) return false;
+  if (!nic?.key) return true;
   if (network.id && nic.networkId && network.id === nic.networkId) return false;
   if (network.name && nic.networkName && network.name === nic.networkName) return false;
   return true;
@@ -1466,6 +1491,7 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
   const changes = [];
   const requestedIds = new Set(disks.map((disk) => String(disk.id || "")).filter(Boolean));
   const originalIds = new Set((originalDisks || []).map((disk) => String(disk.id || "")).filter(Boolean));
+  const usedDiskUnits = new Set((currentDisks || []).map((disk) => Number(disk.unitNumber)).filter((unit) => Number.isFinite(unit)));
 
   for (const disk of currentDisks || []) {
     if (originalIds.has(String(disk.id)) && !requestedIds.has(String(disk.id))) {
@@ -1483,9 +1509,10 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
   disks.forEach((disk, index) => {
     const key = Number(disk.id);
     const capacityKb = Number(disk.capacityGb || 0) * 1024 * 1024;
+    const currentDisk = (currentDisks || [])[index];
     if (Number.isFinite(key) && key > 0) {
-      const currentDisk = (currentDisks || []).find((item) => String(item.id) === String(key));
-      if (currentDisk && Number(currentDisk.capacityGb || 0) === Number(disk.capacityGb || 0)) {
+      const diskByKey = (currentDisks || []).find((item) => String(item.id) === String(key));
+      if (diskByKey && Number(diskByKey.capacityGb || 0) === Number(disk.capacityGb || 0)) {
         return;
       }
       changes.push(`
@@ -1499,6 +1526,23 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
       return;
     }
 
+    if (!originalDisks?.length && currentDisk?.id) {
+      if (Number(currentDisk.capacityGb || 0) === Number(disk.capacityGb || 0)) {
+        return;
+      }
+      changes.push(`
+        <deviceChange>
+          <operation>edit</operation>
+          <device xsi:type="VirtualDisk">
+            <key>${escapeXml(currentDisk.id)}</key>
+            <capacityInKB>${capacityKb}</capacityInKB>
+          </device>
+        </deviceChange>`);
+      return;
+    }
+
+    const unitNumber = findFreeDiskUnit(usedDiskUnits, index);
+    usedDiskUnits.add(unitNumber);
     changes.push(`
       <deviceChange>
         <operation>add</operation>
@@ -1506,7 +1550,7 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
         <device xsi:type="VirtualDisk">
           <key>-${index + 100}</key>
           <controllerKey>1000</controllerKey>
-          <unitNumber>${findFreeDiskUnit(currentDisks, index)}</unitNumber>
+          <unitNumber>${unitNumber}</unitNumber>
           <capacityInKB>${capacityKb}</capacityInKB>
           <backing xsi:type="VirtualDiskFlatVer2BackingInfo">
             <diskMode>persistent</diskMode>
@@ -1779,8 +1823,7 @@ function parseSoapVmConfig(xml) {
   };
 }
 
-function findFreeDiskUnit(currentDisks, fallback) {
-  const used = new Set((currentDisks || []).map((disk) => Number(disk.unitNumber)).filter((unit) => Number.isFinite(unit)));
+function findFreeDiskUnit(used, fallback) {
   for (let unit = 0; unit < 15; unit += 1) {
     if (unit === 7) continue;
     if (!used.has(unit)) return unit;
