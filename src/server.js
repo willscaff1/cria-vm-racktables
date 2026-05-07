@@ -380,11 +380,12 @@ async function preflightProvisionVm(payload) {
     const vcenter = await findVcenter(payload.vcenterId);
     const session = await openVcenterSession(vcenter);
 
+    if (await vcenterVmNameExists(vcenter, session, payload.vm.label)) {
+      throw new Error(`Ja existe uma VM chamada '${payload.vm.label}' no vCenter. Use outro label antes de criar.`);
+    }
+
     if (payload.deployMode === "template") {
       const templateRef = parseTemplateRef(payload.templateId);
-      if (await vcenterVmNameExists(vcenter, session, payload.vm.label)) {
-        throw new Error(`Ja existe uma VM chamada '${payload.vm.label}' no vCenter. Use outro label antes de criar.`);
-      }
       await validateVcenterClonePreflight(vcenter, session, payload, templateRef);
     }
 
@@ -447,13 +448,13 @@ async function createVcenterVm(vcenter, payload) {
   }
 
   const session = await openVcenterSession(vcenter);
+  if (await vcenterVmNameExists(vcenter, session, payload.vm.label)) {
+    throw new Error(`Ja existe uma VM chamada '${payload.vm.label}' no vCenter. Use outro label antes de criar.`);
+  }
 
   if (payload.deployMode === "template") {
     if (!payload.templateId) {
       throw new Error("Selecione um template para criacao por template.");
-    }
-    if (await vcenterVmNameExists(vcenter, session, payload.vm.label)) {
-      throw new Error(`Ja existe uma VM chamada '${payload.vm.label}' no vCenter. Use outro label antes de criar.`);
     }
     const templateRef = parseTemplateRef(payload.templateId);
     await validateVcenterClonePreflight(vcenter, session, payload, templateRef);
@@ -555,7 +556,8 @@ async function createVcenterVm(vcenter, payload) {
         id: payload.placement.networkId,
         name: payload.placement.networkName
       } : null,
-      bootFromCdrom: true
+      bootFromCdrom: true,
+      resizeExistingDisks: false
     }) : null;
     return {
       mode: "iso",
@@ -1143,6 +1145,7 @@ async function configureAndPowerOnVmSoap(vcenter, vmId, hardware = {}) {
     disks: hardware.disks || [],
     originalDisks: hardware.originalDisks || [],
     bootFromCdrom: Boolean(hardware.bootFromCdrom),
+    resizeExistingDisks: hardware.resizeExistingDisks !== false,
     current: vmConfig
   });
 
@@ -1420,7 +1423,7 @@ function soapCloneVm({ templateId, folder, name, resourcePool, host, datastore }
     </CloneVM_Task>`);
 }
 
-function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, bootFromCdrom, current }) {
+function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, bootFromCdrom, resizeExistingDisks, current }) {
   const cpuValue = Number(cpu || 0);
   const memoryMbValue = Number(memoryGb || 0) * 1024;
   const cpuXml = cpuValue && cpuValue !== Number(current.cpu || 0) ? `<numCPUs>${cpuValue}</numCPUs>` : "";
@@ -1431,7 +1434,7 @@ function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, bo
         </bootOptions>` : "";
   const deviceChanges = [
     networkNeedsChange(network, current.nic) ? soapNetworkDeviceChange(network, current.nic) : "",
-    soapDiskDeviceChanges(disks, originalDisks, current.disks)
+    soapDiskDeviceChanges(disks, originalDisks, current.disks, resizeExistingDisks)
   ].filter(Boolean).join("");
 
   const hasConfig = cpuXml || memoryXml || bootXml || deviceChanges;
@@ -1443,8 +1446,8 @@ function soapReconfigVm(vmId, { cpu, memoryGb, network, disks, originalDisks, bo
       <spec>
         ${cpuXml}
         ${memoryXml}
-        ${bootXml}
         ${deviceChanges}
+        ${bootXml}
       </spec>
     </ReconfigVM_Task>`);
 }
@@ -1486,7 +1489,7 @@ function networkNeedsChange(network, nic) {
   return true;
 }
 
-function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
+function soapDiskDeviceChanges(disks, originalDisks, currentDisks, resizeExistingDisks = true) {
   if (!Array.isArray(disks)) return "";
   const changes = [];
   const requestedIds = new Set(disks.map((disk) => String(disk.id || "")).filter(Boolean));
@@ -1512,6 +1515,7 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
     const currentDisk = (currentDisks || [])[index];
     if (Number.isFinite(key) && key > 0) {
       const diskByKey = (currentDisks || []).find((item) => String(item.id) === String(key));
+      if (!resizeExistingDisks) return;
       if (diskByKey && Number(diskByKey.capacityGb || 0) === Number(disk.capacityGb || 0)) {
         return;
       }
@@ -1520,6 +1524,8 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
           <operation>edit</operation>
           <device xsi:type="VirtualDisk">
             <key>${key}</key>
+            <controllerKey>${escapeXml(diskByKey.controllerKey || 1000)}</controllerKey>
+            <unitNumber>${escapeXml(diskByKey.unitNumber || 0)}</unitNumber>
             <capacityInKB>${capacityKb}</capacityInKB>
           </device>
         </deviceChange>`);
@@ -1527,6 +1533,7 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
     }
 
     if (!originalDisks?.length && currentDisk?.id) {
+      if (!resizeExistingDisks) return;
       if (Number(currentDisk.capacityGb || 0) === Number(disk.capacityGb || 0)) {
         return;
       }
@@ -1535,6 +1542,8 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
           <operation>edit</operation>
           <device xsi:type="VirtualDisk">
             <key>${escapeXml(currentDisk.id)}</key>
+            <controllerKey>${escapeXml(currentDisk.controllerKey || 1000)}</controllerKey>
+            <unitNumber>${escapeXml(currentDisk.unitNumber || 0)}</unitNumber>
             <capacityInKB>${capacityKb}</capacityInKB>
           </device>
         </deviceChange>`);
@@ -1549,13 +1558,14 @@ function soapDiskDeviceChanges(disks, originalDisks, currentDisks) {
         <fileOperation>create</fileOperation>
         <device xsi:type="VirtualDisk">
           <key>-${index + 100}</key>
-          <controllerKey>1000</controllerKey>
-          <unitNumber>${unitNumber}</unitNumber>
-          <capacityInKB>${capacityKb}</capacityInKB>
           <backing xsi:type="VirtualDiskFlatVer2BackingInfo">
+            <fileName></fileName>
             <diskMode>persistent</diskMode>
             <thinProvisioned>true</thinProvisioned>
           </backing>
+          <controllerKey>1000</controllerKey>
+          <unitNumber>${unitNumber}</unitNumber>
+          <capacityInKB>${capacityKb}</capacityInKB>
         </device>
       </deviceChange>`);
   });
@@ -1791,6 +1801,7 @@ function parseSoapDisks(objectXml) {
       id: String(key),
       label: parseSoapDiskLabel(diskXml) || `Disco ${disks.length + 1}`,
       capacityGb,
+      controllerKey: parseSoapText(diskXml, "controllerKey") || "1000",
       unitNumber: Number(parseSoapText(diskXml, "unitNumber") || disks.length)
     });
   }
