@@ -707,7 +707,7 @@ function updateIsoPathPreview() {
   if (!preview) return;
   const mode = $("#deploy-mode")?.value;
   const isoPath = buildIsoPath();
-  preview.textContent = mode === "iso" && isoPath ? `ISO selecionada: ${isoPath}` : "";
+  preview.textContent = mode === "iso" && isoPath ? isoPath : "";
 }
 
 async function handleIsoDatastoreChange() {
@@ -769,9 +769,12 @@ function renderIsoBrowser() {
   const selectedPath = $("#iso-file-path").value;
   list.innerHTML = entries.map((entry) => `
     <button type="button" class="iso-entry file ${entry.path === selectedPath ? "selected" : ""}" data-path="${escapeHtml(entry.path)}">
-      <span>ISO</span>
-      <strong>${escapeHtml(entry.name)}</strong>
-      ${entry.size ? `<small>${bytes(entry.size)}</small>` : ""}
+      <span class="iso-badge">ISO</span>
+      <span class="iso-entry-text">
+        <strong>${escapeHtml(entry.name)}</strong>
+        <small>${escapeHtml(entry.path)}</small>
+      </span>
+      ${entry.size ? `<span class="iso-size">${bytes(entry.size)}</span>` : ""}
     </button>
   `).join("");
 

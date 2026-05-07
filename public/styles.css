@@ -504,11 +504,11 @@ button.secondary:hover {
 
 .iso-browser {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 10px;
+  padding: 12px;
   background: #fbfcfd;
 }
 
@@ -517,6 +517,14 @@ button.secondary:hover {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
+}
+
+.iso-browser-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .iso-browser-actions {
@@ -526,33 +534,68 @@ button.secondary:hover {
 
 .iso-browser-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  max-height: 260px;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  max-height: 300px;
   overflow: auto;
 }
 
 .iso-entry {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  min-height: 52px;
   border-color: var(--line);
   background: #fff;
   color: var(--text);
   text-align: left;
+  padding: 8px 10px;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.iso-entry span,
-.iso-entry small {
+.iso-badge,
+.iso-size,
+.iso-entry-text small {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
 }
 
-.iso-entry.folder span {
-  color: var(--primary);
+.iso-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.iso-size {
+  white-space: nowrap;
+}
+
+.iso-entry-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.iso-entry-text strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iso-entry-text small {
+  display: block;
+  min-width: 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .iso-entry.selected {
@@ -565,6 +608,7 @@ button.secondary:hover {
   border: 1px dashed var(--line);
   border-radius: 6px;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .iso-empty.error {
