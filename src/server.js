@@ -435,11 +435,75 @@ async function provisionVm(payload) {
     return { ok: true, job: maskJob(job) };
   } catch (error) {
     job.status = "erro";
-    job.error = error.message || "Erro ao provisionar VM";
+    job.technicalError = error.message || "Erro ao provisionar VM";
+    job.error = friendlyProvisionError(error, job);
     job.updatedAt = new Date().toISOString();
     await saveJson("jobs.json", jobs);
     return { ok: false, job: maskJob(job), error: job.error };
   }
+}
+
+function friendlyProvisionError(error, job = {}) {
+  const message = String(error?.message || error || "");
+  const stage = job.status || "";
+
+  if (/Criacao real no vCenter bloqueada/i.test(message)) {
+    return "A criacao real no vCenter esta bloqueada. Habilite a escrita no sistema antes de criar a VM.";
+  }
+
+  if (/Ja existe uma VM chamada/i.test(message)) {
+    return message;
+  }
+
+  if (/No virtual machine folder specified|no_folder_in_placement_spec/i.test(message)) {
+    return "O vCenter recusou o destino da VM porque a pasta de VMs nao foi informada. Selecione uma pasta em VMs and Templates e tente novamente.";
+  }
+
+  if (/Unexpected element tag .*deviceChange|vim\.vm\.ConfigSpec/i.test(message)) {
+    return "O vCenter recusou a configuracao de hardware da VM. A VM pode ter sido criada, mas rede, discos ou boot nao foram finalizados.";
+  }
+
+  if (/Required property fileName|VirtualDiskFlatVer2BackingInfo/i.test(message)) {
+    return "O vCenter recusou a criacao de um disco adicional da VM. A VM pode ter ficado parcial no inventario.";
+  }
+
+  if (/Device requires a controller/i.test(message)) {
+    return "O vCenter recusou a alteracao de disco porque faltou a controladora do disco. A VM pode ter ficado parcial no inventario.";
+  }
+
+  if (/communicating with the remote host/i.test(message)) {
+    return "O host que recebeu a VM parou de responder durante a configuracao. Verifique o host e a VM no vCenter antes de tentar novamente.";
+  }
+
+  if (/PowerOnVM_Task/i.test(message)) {
+    return "A VM foi criada, mas o vCenter nao conseguiu ligar a maquina.";
+  }
+
+  if (/ReconfigVM_Task/i.test(message)) {
+    return "A VM foi criada, mas o vCenter nao conseguiu aplicar a configuracao de hardware.";
+  }
+
+  if (/CloneVM_Task/i.test(message)) {
+    return "O vCenter nao conseguiu clonar o template para criar a VM.";
+  }
+
+  if (/vCenter SOAP HTTP|vCenter HTTP/i.test(message)) {
+    return "O vCenter recusou a operacao. A VM pode ter ficado parcial; verifique o inventario antes de tentar novamente.";
+  }
+
+  if (/RackTables/i.test(message) || stage === "registrando_no_racktables") {
+    return `A VM foi criada no vCenter, mas nao consegui gravar no RackTables: ${stripTechnicalNoise(message)}`;
+  }
+
+  return stripTechnicalNoise(message) || "Nao consegui concluir a criacao da VM.";
+}
+
+function stripTechnicalNoise(value) {
+  return String(value || "")
+    .replace(/<\?xml[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
 }
 
 async function createVcenterVm(vcenter, payload) {
@@ -2493,11 +2557,14 @@ function maskRackTablesConfig(config) {
 }
 
 function maskJob(job) {
+  const { technicalError, ...publicJob } = job;
+  const error = publicJob.error ? friendlyProvisionError(publicJob.error, publicJob) : publicJob.error;
   return {
-    ...job,
-    request: job.request ? {
-      ...job.request,
-      racktables: job.request.racktables
+    ...publicJob,
+    error,
+    request: publicJob.request ? {
+      ...publicJob.request,
+      racktables: publicJob.request.racktables
     } : undefined
   };
 }
