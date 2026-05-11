@@ -23,6 +23,7 @@ const selectedTagIds = new Set();
 let vmDisks = [];
 let ticketDisks = [];
 let selectedTemplateDetails = null;
+let activeTicketId = null;
 let editingVcenterId = null;
 let editingRackTablesId = null;
 
@@ -121,6 +122,7 @@ async function loadRackTablesOptions() {
     state.racktables = { equipeResponsavel: [], orgaos: [], situacoes: [], tags: [] };
     fillSelect($("#equipe-responsavel"), [], "id", "name", "Selecione...");
     fillSelect($("#orgao"), [], "id", "name", "Selecione...");
+    fillSelect($("#ticket-orgao"), [], "id", "name", "Selecione...");
     fillSelect($("#situacao"), [], "id", "name", "Selecione...");
     fillSelect($("#tag-picker"), [], "id", "name", "Adicionar tag...");
     return;
@@ -129,6 +131,7 @@ async function loadRackTablesOptions() {
     state.racktables = await api(`/api/racktables/options?racktablesId=${encodeURIComponent(racktablesId)}`);
     fillSelect($("#equipe-responsavel"), state.racktables.equipeResponsavel, "id", "name", "Selecione...");
     fillSelect($("#orgao"), state.racktables.orgaos, "id", "name", "Selecione...");
+    fillSelect($("#ticket-orgao"), state.racktables.orgaos, "id", "name", "Selecione...");
     fillSelect($("#situacao"), state.racktables.situacoes, "id", "name", "Selecione...");
     fillSelect($("#tag-picker"), state.racktables.tags, "id", "name", "Adicionar tag...");
     renderSelectedTags();
@@ -208,6 +211,8 @@ async function createTicket(event) {
   const data = formJson(form);
   const payload = {
     ...data,
+    orgaoName: selectedText("#ticket-orgao"),
+    networkName: selectedText("#ticket-network-id"),
     disks: ticketDisks.map((disk) => ({
       id: disk.id,
       label: disk.label,
@@ -255,7 +260,8 @@ function renderAdminTickets() {
         <span>${escapeHtml(ticket.supportTicket || "")}</span>
         <span>${escapeHtml(ticket.os || "")}</span>
         <span>${escapeHtml(ticket.service || "")}</span>
-        <span>${escapeHtml(ticket.network || "")}</span>
+        <span>${escapeHtml(ticket.orgaoName || ticket.orgao || "")}</span>
+        <span>${escapeHtml(ticket.networkName || ticket.network || "")}</span>
         <span>${escapeHtml(ticket.config?.cpu || "")} CPU / ${escapeHtml(ticket.config?.memoryGb || "")} GB / ${escapeHtml(ticket.config?.diskGb || "")} GB disco</span>
       </div>
       <div class="ticket-card-actions">
@@ -285,6 +291,7 @@ async function updateTicketStatus(id, status) {
 function applyTicketToProvision(id) {
   const ticket = (state.tickets || []).find((item) => item.id === id);
   if (!ticket) return;
+  activeTicketId = ticket.id;
   const form = $("#provision-form");
   form.label.value = ticket.labelSuggestion || "";
   form.cpu.value = ticket.config?.cpu || 2;
@@ -292,9 +299,17 @@ function applyTicketToProvision(id) {
   form.solicitante.value = ticket.requester?.fullName || "";
   form.fqdn.value = ticket.labelSuggestion || "";
 
-  setSelectByText("#orgao", ticket.orgao);
+  if (ticket.orgao && [...form.orgao.options].some((option) => option.value === ticket.orgao)) {
+    form.orgao.value = ticket.orgao;
+  } else {
+    setSelectByText("#orgao", ticket.orgaoName || ticket.orgao);
+  }
   setSelectByText("#situacao", environmentLabel(ticket.environment));
-  setSelectByText("#network-id", ticket.network);
+  if (ticket.networkId) {
+    form.networkId.value = ticket.networkId;
+  } else {
+    setSelectByText("#network-id", ticket.networkName || ticket.network);
+  }
 
   vmDisks = (ticket.config?.disks || []).map((disk, index) => ({
     id: cryptoId(),
@@ -321,6 +336,8 @@ async function loadInventory() {
     fillSelect($("#datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
     fillSelect($("#iso-datastore-id"), state.inventory.datastores, "datastore", datastoreLabel, "Selecione...");
     fillSelect($("#network-id"), state.inventory.networks, "network", "name", "Selecione...");
+    fillSelect($("#ticket-network-id"), state.inventory.networks, "network", "name", "Selecione...");
+    updateTicketNetworkStatus();
     fillSelect($("#template-id"), state.inventory.templates, "id", templateLabel, "Selecione...");
     renderFolderSelector();
     updateTemplateStatus(state.inventory.templates);
@@ -336,9 +353,10 @@ async function loadInventory() {
 }
 
 function clearInventory() {
-  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#template-id", "#folder-root-id"].forEach((selector) => {
+  ["#cluster-id", "#host-id", "#datastore-id", "#iso-datastore-id", "#network-id", "#ticket-network-id", "#template-id", "#folder-root-id"].forEach((selector) => {
     fillSelect($(selector), [], "id", "name", "Selecione...");
   });
+  updateTicketNetworkStatus();
   $("#folder-id").value = "";
   $("#folder-child-selects").innerHTML = "";
   $("#folder-status").textContent = "";
@@ -548,6 +566,7 @@ async function provisionVm(event) {
     vcenterName: selectedVcenter?.name || "",
     racktablesId: data.racktablesId,
     racktablesName: selectedText("#create-racktables"),
+    ticket: buildAppliedTicketPayload(),
     deployMode: data.deployMode,
     templateId: data.templateId,
     templateName: selectedText("#template-id"),
@@ -584,7 +603,7 @@ async function provisionVm(event) {
       equipeResponsavel: data.equipeResponsavel,
       orgao: data.orgao,
       situacao: data.situacao,
-      osType: selectedTemplateDetails?.osTypeId || "0",
+      osType: selectedTemplateDetails?.osTypeId || mapTicketOsType(getActiveTicket()?.os) || "0",
       tags: [...selectedTagIds]
     }
   };
@@ -595,6 +614,14 @@ async function provisionVm(event) {
       method: "POST",
       body: payload
     });
+    if (activeTicketId) {
+      try {
+        await updateTicketStatus(activeTicketId, "usado");
+      } catch {
+        // A VM ja foi criada; falha ao marcar o chamado nao deve transformar a criacao em erro.
+      }
+      activeTicketId = null;
+    }
     setStatus("#create-status", `Solicitacao ${result.job.id} concluida.`, "ok");
     await loadJobs();
   } catch (error) {
@@ -1232,6 +1259,13 @@ function setIpStatus(text) {
   if (status) status.textContent = text || "";
 }
 
+function updateTicketNetworkStatus() {
+  const status = $("#ticket-network-status");
+  if (!status) return;
+  const count = state.inventory?.networks?.length || 0;
+  status.textContent = count ? `${count} rede(s) do vCenter carregada(s)` : "Selecione um vCenter para carregar as redes.";
+}
+
 function updateTemplateStatus(templates) {
   const count = templates?.length || 0;
   const status = $("#template-status");
@@ -1391,6 +1425,46 @@ function environmentLabel(value) {
     desenvolvimento: "Desenvolvimento"
   };
   return map[value] || value || "";
+}
+
+function getActiveTicket() {
+  return (state.tickets || []).find((ticket) => ticket.id === activeTicketId) || null;
+}
+
+function buildAppliedTicketPayload() {
+  const ticket = getActiveTicket();
+  if (!ticket) return null;
+  return {
+    id: ticket.id,
+    supportTicket: ticket.supportTicket,
+    requester: ticket.requester,
+    os: ticket.os,
+    service: ticket.service,
+    environment: ticket.environment,
+    orgao: ticket.orgao,
+    orgaoName: ticket.orgaoName,
+    networkId: ticket.networkId,
+    networkName: ticket.networkName || ticket.network,
+    notes: ticket.notes || ""
+  };
+}
+
+function mapTicketOsType(value) {
+  const text = normalizeText(value);
+  const rules = [
+    [/alma/, "3780"],
+    [/rocky/, "3779"],
+    [/red hat|rhel/, "3779"],
+    [/ubuntu|debian/, "0"],
+    [/windows server 2025|windows server 2022/, "50126"],
+    [/windows server 2019/, "50100"],
+    [/windows server 2016/, "2707"],
+    [/windows server 2012/, "2063"]
+  ];
+  for (const [pattern, id] of rules) {
+    if (pattern.test(text)) return id;
+  }
+  return "0";
 }
 
 function normalizeText(value) {

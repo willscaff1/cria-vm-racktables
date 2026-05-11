@@ -51,7 +51,7 @@
               </label>
               <label>
                 Orgao
-                <input name="orgao" required placeholder="Orgao solicitante">
+                <select name="orgao" id="ticket-orgao" required></select>
               </label>
             </fieldset>
 
@@ -90,7 +90,8 @@
               </label>
               <label>
                 Rede
-                <input name="network" required placeholder="SERVER FARM, DMZ, etc.">
+                <select name="networkId" id="ticket-network-id" required></select>
+                <span id="ticket-network-status" class="field-status"></span>
               </label>
               <label>
                 Situacao

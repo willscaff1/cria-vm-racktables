@@ -970,6 +970,14 @@ function buildRackTablesComment(payload, vmResult, job) {
     `Job: ${job.id}`,
     `Data da solicitacao: ${new Date(job.createdAt).toLocaleString("pt-BR")}`,
     `Solicitante: ${payload.racktables.solicitante || ""}`,
+    payload.ticket?.supportTicket ? `Chamado suporte: ${payload.ticket.supportTicket}` : "",
+    payload.ticket?.requester?.email ? `Email solicitante: ${payload.ticket.requester.email}` : "",
+    payload.ticket?.requester?.phone ? `Telefone solicitante: ${payload.ticket.requester.phone}` : "",
+    payload.ticket?.os ? `Sistema operacional solicitado: ${payload.ticket.os}` : "",
+    payload.ticket?.service ? `Servico solicitado: ${payload.ticket.service}` : "",
+    payload.ticket?.environment ? `Ambiente solicitado: ${payload.ticket.environment}` : "",
+    payload.ticket?.orgaoName ? `Orgao solicitado: ${payload.ticket.orgaoName}` : "",
+    payload.ticket?.notes ? `Observacoes do chamado: ${payload.ticket.notes}` : "",
     `vCenter: ${payload.vcenterName || payload.vcenterId}`,
     `Cluster: ${payload.placement.clusterName || payload.placement.clusterId || ""}`,
     `Host: ${payload.placement.hostName || payload.placement.hostId || ""}`,
@@ -988,7 +996,7 @@ function buildRackTablesComment(payload, vmResult, job) {
     `VM ID vCenter: ${vmResult.vmId || ""}`
   ];
 
-  return lines.join("\n");
+  return lines.filter((line) => line !== "").join("\n");
 }
 
 function parseTemplateRef(value) {
@@ -2612,10 +2620,13 @@ function normalizeTicket(input) {
     supportTicket: requiredText(input.supportTicket, "Numero do chamado no suporte"),
     os: requiredText(input.os, "Sistema operacional"),
     service: requiredText(input.service, "Servico"),
-    network: requiredText(input.network, "Rede"),
+    networkId: requiredText(input.networkId, "Rede"),
+    networkName: requiredText(input.networkName, "Rede"),
+    network: requiredText(input.networkName, "Rede"),
     labelSuggestion: requiredText(input.labelSuggestion, "Sugestao de label"),
     environment: requiredText(input.environment, "Situacao"),
     orgao: requiredText(input.orgao, "Orgao"),
+    orgaoName: String(input.orgaoName || "").trim(),
     notes: String(input.notes || "").trim(),
     config: {
       cpu: positiveNumber(input.cpu, 2),
