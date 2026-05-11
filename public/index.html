@@ -14,6 +14,7 @@
           <span>vCenter + RackTables</span>
         </div>
         <nav>
+          <button class="nav-button" data-view="ticket">Abrir chamado</button>
           <button class="nav-button active" data-view="create">Criar VM</button>
           <button class="nav-button" data-view="vcenters">vCenters</button>
           <button class="nav-button" data-view="jobs">Solicitacoes</button>
@@ -21,6 +22,125 @@
       </aside>
 
       <main>
+        <section id="view-ticket" class="view">
+          <div class="page-head">
+            <div>
+              <h1>Abertura de chamado</h1>
+              <p>Solicite a criacao de uma VM com os dados minimos para avaliacao tecnica.</p>
+            </div>
+          </div>
+
+          <form id="ticket-form" class="grid-form">
+            <fieldset class="form-section section-ticket">
+              <legend>Solicitante</legend>
+              <label class="span-2">
+                Nome completo
+                <input name="fullName" required placeholder="Nome Sobrenome">
+              </label>
+              <label>
+                Telefone
+                <input name="phone" required placeholder="(00) 00000-0000">
+              </label>
+              <label>
+                Email
+                <input type="email" name="email" required placeholder="usuario@dominio.local">
+              </label>
+              <label>
+                Numero do chamado no suporte
+                <input name="supportTicket" required placeholder="INC0000000">
+              </label>
+              <label>
+                Orgao
+                <input name="orgao" required placeholder="Orgao solicitante">
+              </label>
+            </fieldset>
+
+            <fieldset class="form-section section-ticket">
+              <legend>Aplicacao</legend>
+              <label>
+                Sistema operacional
+                <select name="os" required>
+                  <option value="">Selecione...</option>
+                  <option>Windows Server 2025</option>
+                  <option>Windows Server 2022</option>
+                  <option>Windows Server 2019</option>
+                  <option>Ubuntu Server</option>
+                  <option>Debian</option>
+                  <option>Red Hat Enterprise Linux</option>
+                  <option>Rocky Linux</option>
+                  <option>AlmaLinux</option>
+                  <option>VMware ESXi</option>
+                  <option>Outro</option>
+                </select>
+              </label>
+              <label>
+                Servico
+                <select name="service" required>
+                  <option value="">Selecione...</option>
+                  <option>Banco de dados</option>
+                  <option>File server</option>
+                  <option>Aplicacao web</option>
+                  <option>Docker</option>
+                  <option>Kubernetes</option>
+                  <option>API</option>
+                  <option>Monitoramento</option>
+                  <option>Backup</option>
+                  <option>Outro</option>
+                </select>
+              </label>
+              <label>
+                Rede
+                <input name="network" required placeholder="SERVER FARM, DMZ, etc.">
+              </label>
+              <label>
+                Situacao
+                <select name="environment" required>
+                  <option value="">Selecione...</option>
+                  <option value="producao">Producao</option>
+                  <option value="homologacao">Homologacao</option>
+                  <option value="desenvolvimento">Desenvolvimento</option>
+                </select>
+              </label>
+              <label class="span-2">
+                Sugestao de label
+                <input name="labelSuggestion" required placeholder="srv-app-001">
+              </label>
+              <label class="span-2">
+                Observacoes
+                <input name="notes" placeholder="Janela, dependencia, justificativa ou detalhe tecnico">
+              </label>
+            </fieldset>
+
+            <fieldset class="form-section section-vm">
+              <legend>Configuracao solicitada</legend>
+              <label>
+                CPU
+                <input type="number" name="cpu" min="1" value="2">
+              </label>
+              <label>
+                Memoria GB
+                <input type="number" name="memoryGb" min="1" value="4">
+              </label>
+              <label>
+                Disco total GB
+                <input type="number" name="diskGb" min="1" value="80" readonly>
+              </label>
+              <div class="disk-editor">
+                <div class="disk-editor-head">
+                  <span>Discos</span>
+                  <button type="button" id="ticket-add-disk" class="mini-button">Adicionar disco</button>
+                </div>
+                <div id="ticket-disk-list" class="disk-list"></div>
+              </div>
+            </fieldset>
+
+            <div class="action-row">
+              <button type="submit" class="primary">Abrir chamado</button>
+              <span id="ticket-status" class="status"></span>
+            </div>
+          </form>
+        </section>
+
         <section id="view-create" class="view active">
           <div class="page-head">
             <div>
@@ -28,6 +148,14 @@
               <p>Selecione o vCenter, preencha a VM e os dados que serao gravados no RackTables apos sucesso.</p>
             </div>
             <button id="reload-create" class="secondary">Atualizar dados</button>
+          </div>
+
+          <div class="panel ticket-admin-panel">
+            <div class="panel-head">
+              <h2>Chamados abertos</h2>
+              <button type="button" id="reload-tickets" class="secondary">Atualizar chamados</button>
+            </div>
+            <div id="admin-ticket-list" class="ticket-card-grid"></div>
           </div>
 
           <form id="provision-form" class="grid-form">

@@ -39,6 +39,7 @@ async function main() {
   await ensureJson("vcenters.json", []);
   await ensureJson("jobs.json", []);
   await ensureJson("racktables.json", []);
+  await ensureJson("tickets.json", []);
 
   const server = http.createServer(route);
   server.listen(port, () => {
@@ -353,6 +354,38 @@ async function routeApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/jobs") {
     const jobs = await loadJson("jobs.json", []);
     sendJson(res, 200, jobs.map(maskJob));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/tickets") {
+    const tickets = await loadJson("tickets.json", []);
+    sendJson(res, 200, tickets.map(maskTicket));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/tickets") {
+    const body = await readJsonBody(req);
+    const ticket = normalizeTicket(body);
+    const tickets = await loadJson("tickets.json", []);
+    tickets.unshift(ticket);
+    await saveJson("tickets.json", tickets);
+    sendJson(res, 201, maskTicket(ticket));
+    return;
+  }
+
+  const ticketStatusMatch = url.pathname.match(/^\/api\/tickets\/([^/]+)\/status$/);
+  if (req.method === "PATCH" && ticketStatusMatch) {
+    const body = await readJsonBody(req);
+    const tickets = await loadJson("tickets.json", []);
+    const ticket = tickets.find((item) => item.id === ticketStatusMatch[1]);
+    if (!ticket) {
+      sendJson(res, 404, { error: "Chamado nao encontrado" });
+      return;
+    }
+    ticket.status = normalizeTicketStatus(body.status);
+    ticket.updatedAt = new Date().toISOString();
+    await saveJson("tickets.json", tickets);
+    sendJson(res, 200, maskTicket(ticket));
     return;
   }
 
@@ -2554,6 +2587,58 @@ function maskRackTablesConfig(config) {
     ...config,
     password: config.password ? "********" : ""
   };
+}
+
+function normalizeTicket(input) {
+  const now = new Date().toISOString();
+  const disks = Array.isArray(input.disks) && input.disks.length
+    ? input.disks.map((disk, index) => ({
+        id: String(disk.id || crypto.randomUUID()),
+        label: String(disk.label || `Disco ${index + 1}`).trim(),
+        capacityGb: positiveNumber(disk.capacityGb, 20)
+      }))
+    : [{ id: crypto.randomUUID(), label: "Disco 1", capacityGb: positiveNumber(input.diskGb, 80) }];
+
+  return {
+    id: crypto.randomUUID(),
+    status: "aberto",
+    createdAt: now,
+    updatedAt: now,
+    requester: {
+      fullName: requiredText(input.fullName, "Nome completo"),
+      phone: requiredText(input.phone, "Telefone"),
+      email: requiredText(input.email, "Email")
+    },
+    supportTicket: requiredText(input.supportTicket, "Numero do chamado no suporte"),
+    os: requiredText(input.os, "Sistema operacional"),
+    service: requiredText(input.service, "Servico"),
+    network: requiredText(input.network, "Rede"),
+    labelSuggestion: requiredText(input.labelSuggestion, "Sugestao de label"),
+    environment: requiredText(input.environment, "Situacao"),
+    orgao: requiredText(input.orgao, "Orgao"),
+    notes: String(input.notes || "").trim(),
+    config: {
+      cpu: positiveNumber(input.cpu, 2),
+      memoryGb: positiveNumber(input.memoryGb, 4),
+      disks,
+      diskGb: disks.reduce((sum, disk) => sum + Number(disk.capacityGb || 0), 0)
+    }
+  };
+}
+
+function positiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function normalizeTicketStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  if (["aberto", "em_analise", "usado", "fechado"].includes(status)) return status;
+  throw new Error("Status de chamado invalido.");
+}
+
+function maskTicket(ticket) {
+  return ticket;
 }
 
 function maskJob(job) {

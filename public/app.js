@@ -11,6 +11,7 @@ const state = {
   freeSids: [],
   freeIps: [],
   networks: [],
+  tickets: [],
   isoBrowser: {
     path: "",
     entries: [],
@@ -20,6 +21,7 @@ const state = {
 
 const selectedTagIds = new Set();
 let vmDisks = [];
+let ticketDisks = [];
 let selectedTemplateDetails = null;
 let editingVcenterId = null;
 let editingRackTablesId = null;
@@ -41,6 +43,7 @@ function setupNavigation() {
       button.classList.add("active");
       $(`#view-${button.dataset.view}`).classList.add("active");
       if (button.dataset.view === "jobs") await loadJobs();
+      if (button.dataset.view === "create") await loadTickets();
     });
   });
 }
@@ -67,15 +70,20 @@ function setupForms() {
   $("#add-disk").addEventListener("click", addDisk);
   $("#deploy-mode").addEventListener("change", updateDeployMode);
   $("#reload-create").addEventListener("click", initialLoad);
+  $("#reload-tickets").addEventListener("click", loadTickets);
   $("#reload-jobs").addEventListener("click", loadJobs);
   $("#provision-form").addEventListener("submit", provisionVm);
+  $("#ticket-form").addEventListener("submit", createTicket);
+  $("#ticket-add-disk").addEventListener("click", addTicketDisk);
 }
 
 async function initialLoad() {
   await Promise.allSettled([loadVcenters(), loadRackTablesConfig()]);
+  await loadTickets();
   await loadRackTablesData();
   await loadInventory();
   updateDeployMode();
+  ensureTicketDisks();
 }
 
 async function loadVcenters() {
@@ -181,6 +189,121 @@ async function loadRackTablesNetworks() {
     renderRackTablesNetworks();
     setStatus("#create-status", `Redes RackTables: ${error.message}`, "error");
   }
+}
+
+async function loadTickets() {
+  try {
+    state.tickets = await api("/api/tickets");
+    renderAdminTickets();
+  } catch (error) {
+    state.tickets = [];
+    renderAdminTickets();
+    setStatus("#create-status", `Chamados: ${error.message}`, "error");
+  }
+}
+
+async function createTicket(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = formJson(form);
+  const payload = {
+    ...data,
+    disks: ticketDisks.map((disk) => ({
+      id: disk.id,
+      label: disk.label,
+      capacityGb: Number(disk.capacityGb || 0)
+    }))
+  };
+
+  setStatus("#ticket-status", "Abrindo chamado...", "");
+  try {
+    const ticket = await api("/api/tickets", { method: "POST", body: payload });
+    form.reset();
+    ticketDisks = [{ id: cryptoId(), label: "Disco 1", capacityGb: 80 }];
+    renderTicketDisks();
+    await loadTickets();
+    showConfirmation("Chamado aberto", [
+      ["Numero interno", ticket.id],
+      ["Chamado suporte", ticket.supportTicket],
+      ["Solicitante", ticket.requester?.fullName],
+      ["Label sugerido", ticket.labelSuggestion],
+      ["Status", ticket.status]
+    ]);
+    setStatus("#ticket-status", "Chamado aberto e disponivel para o admin.", "ok");
+  } catch (error) {
+    setStatus("#ticket-status", error.message, "error");
+  }
+}
+
+function renderAdminTickets() {
+  const container = $("#admin-ticket-list");
+  if (!container) return;
+  const openTickets = (state.tickets || []).filter((ticket) => ticket.status === "aberto" || ticket.status === "em_analise");
+  if (!openTickets.length) {
+    container.innerHTML = `<div class="ticket-empty">Nenhum chamado aberto aguardando criacao de VM.</div>`;
+    return;
+  }
+
+  container.innerHTML = openTickets.map((ticket) => `
+    <article class="ticket-card">
+      <div class="ticket-card-head">
+        <strong>${escapeHtml(ticket.labelSuggestion || ticket.supportTicket)}</strong>
+        <span class="pill">${escapeHtml(ticket.environment || "aberto")}</span>
+      </div>
+      <div class="ticket-card-body">
+        <span>${escapeHtml(ticket.requester?.fullName || "")}</span>
+        <span>${escapeHtml(ticket.supportTicket || "")}</span>
+        <span>${escapeHtml(ticket.os || "")}</span>
+        <span>${escapeHtml(ticket.service || "")}</span>
+        <span>${escapeHtml(ticket.network || "")}</span>
+        <span>${escapeHtml(ticket.config?.cpu || "")} CPU / ${escapeHtml(ticket.config?.memoryGb || "")} GB / ${escapeHtml(ticket.config?.diskGb || "")} GB disco</span>
+      </div>
+      <div class="ticket-card-actions">
+        <button type="button" class="primary" data-action="apply-ticket" data-id="${escapeHtml(ticket.id)}">Usar no formulario</button>
+        <button type="button" class="secondary" data-action="close-ticket" data-id="${escapeHtml(ticket.id)}">Fechar</button>
+      </div>
+    </article>
+  `).join("");
+
+  container.querySelectorAll("[data-action='apply-ticket']").forEach((button) => {
+    button.addEventListener("click", () => applyTicketToProvision(button.dataset.id));
+  });
+  container.querySelectorAll("[data-action='close-ticket']").forEach((button) => {
+    button.addEventListener("click", () => updateTicketStatus(button.dataset.id, "fechado"));
+  });
+}
+
+async function updateTicketStatus(id, status) {
+  try {
+    await api(`/api/tickets/${encodeURIComponent(id)}/status`, { method: "PATCH", body: { status } });
+    await loadTickets();
+  } catch (error) {
+    setStatus("#create-status", error.message, "error");
+  }
+}
+
+function applyTicketToProvision(id) {
+  const ticket = (state.tickets || []).find((item) => item.id === id);
+  if (!ticket) return;
+  const form = $("#provision-form");
+  form.label.value = ticket.labelSuggestion || "";
+  form.cpu.value = ticket.config?.cpu || 2;
+  form.memoryGb.value = ticket.config?.memoryGb || 4;
+  form.solicitante.value = ticket.requester?.fullName || "";
+  form.fqdn.value = ticket.labelSuggestion || "";
+
+  setSelectByText("#orgao", ticket.orgao);
+  setSelectByText("#situacao", environmentLabel(ticket.environment));
+  setSelectByText("#network-id", ticket.network);
+
+  vmDisks = (ticket.config?.disks || []).map((disk, index) => ({
+    id: cryptoId(),
+    label: disk.label || `Disco ${index + 1}`,
+    capacityGb: Number(disk.capacityGb || 0)
+  }));
+  if (!vmDisks.length) vmDisks = [{ id: cryptoId(), label: "Disco 1", capacityGb: Number(ticket.config?.diskGb || 80) }];
+  renderDisks();
+  setStatus("#create-status", `Chamado ${ticket.supportTicket} aplicado ao formulario. Confira vCenter, RackTables, IP e pasta antes de criar.`, "ok");
 }
 
 async function loadInventory() {
@@ -885,6 +1008,73 @@ function addDisk() {
   renderDisks();
 }
 
+function ensureTicketDisks() {
+  if (!ticketDisks.length) {
+    ticketDisks = [{ id: cryptoId(), label: "Disco 1", capacityGb: 80 }];
+  }
+  renderTicketDisks();
+}
+
+function addTicketDisk() {
+  ticketDisks.push({
+    id: cryptoId(),
+    label: `Disco ${ticketDisks.length + 1}`,
+    capacityGb: 20
+  });
+  renderTicketDisks();
+}
+
+function removeTicketDisk(id) {
+  ticketDisks = ticketDisks.filter((disk) => disk.id !== id);
+  if (!ticketDisks.length) ticketDisks = [{ id: cryptoId(), label: "Disco 1", capacityGb: 80 }];
+  renderTicketDisks();
+}
+
+function renderTicketDisks() {
+  const list = $("#ticket-disk-list");
+  if (!list) return;
+  list.innerHTML = "";
+
+  ticketDisks.forEach((disk) => {
+    const row = document.createElement("div");
+    row.className = "disk-row";
+
+    const name = document.createElement("input");
+    name.value = disk.label;
+    name.setAttribute("aria-label", "Nome do disco solicitado");
+    name.addEventListener("input", () => {
+      disk.label = name.value;
+    });
+
+    const size = document.createElement("input");
+    size.type = "number";
+    size.min = "1";
+    size.value = disk.capacityGb;
+    size.setAttribute("aria-label", "Tamanho do disco solicitado em GB");
+    size.addEventListener("input", () => {
+      disk.capacityGb = Number(size.value || 0);
+      updateTicketDiskTotal();
+    });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "disk-remove";
+    remove.textContent = "x";
+    remove.title = "Remover disco";
+    remove.addEventListener("click", () => removeTicketDisk(disk.id));
+
+    row.append(name, size, remove);
+    list.appendChild(row);
+  });
+
+  updateTicketDiskTotal();
+}
+
+function updateTicketDiskTotal() {
+  const total = ticketDisks.reduce((sum, disk) => sum + Number(disk.capacityGb || 0), 0);
+  $("#ticket-form").diskGb.value = total;
+}
+
 function removeDisk(id) {
   vmDisks = vmDisks.filter((disk) => disk.id !== id);
   renderDisks();
@@ -1177,6 +1367,38 @@ function rackTablesLabel(item) {
 function selectedText(selector) {
   const select = $(selector);
   return select.options[select.selectedIndex]?.textContent || "";
+}
+
+function setSelectByText(selector, text) {
+  const select = $(selector);
+  if (!select || !text) return false;
+  const target = normalizeText(text);
+  for (const option of select.options) {
+    const optionText = normalizeText(option.textContent);
+    if (optionText === target || optionText.includes(target) || target.includes(optionText)) {
+      select.value = option.value;
+      select.dispatchEvent(new Event("change"));
+      return true;
+    }
+  }
+  return false;
+}
+
+function environmentLabel(value) {
+  const map = {
+    producao: "Producao",
+    homologacao: "Homologacao",
+    desenvolvimento: "Desenvolvimento"
+  };
+  return map[value] || value || "";
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function selectedOptionData(selector, key) {
